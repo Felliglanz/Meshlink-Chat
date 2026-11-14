@@ -2,6 +2,34 @@
 /* MeshLink Chat Frontend – Vanilla JS, keine Abhängigkeiten. */
 
 const $ = (s, el = document) => el.querySelector(s);
+
+// ------------------------------------------------------------------ Sprache
+// Der Server bettet das Wörterbuch der gewählten Sprache in die Seite ein (public/i18n/<code>.json, schon mit
+// Englisch/Deutsch aufgefüllt). T(schlüssel, { name: … }) liefert den Text; {name} wird ersetzt, Mehrzahl über { n }.
+// Platzhalter werden NICHT escaped – in HTML also esc(…) übergeben.
+const I18N = (() => { try { return JSON.parse(document.getElementById('i18n').textContent); } catch { return {}; } })();
+const LANG = I18N.lang || document.documentElement.lang || 'en';
+const DICT = I18N.dict || {};
+// Zahlen- und Datumsformat: passende Browser-Variante (z. B. de-AT, en-US), sonst die aus der Sprachdatei
+const LOC = (() => {
+  const want = (navigator.languages || []).find((l) => l.toLowerCase().split('-')[0] === LANG.split('-')[0]);
+  for (const l of [want, DICT._meta?.locale, LANG]) { try { if (l) return Intl.getCanonicalLocales(l)[0]; } catch { /* nächste */ } }
+  return 'en';
+})();
+const PLURAL = new Intl.PluralRules(LOC);
+function T(key, p = {}) {
+  let v = DICT[key];
+  if (v == null) return key;
+  if (typeof v === 'object') v = v[PLURAL.select(Number(p.n) || 0)] ?? v.other ?? '';
+  return String(v).replace(/\{(\w+)\}/g, (all, k) => (p[k] == null ? all : String(p[k])));
+}
+// Eigene Wahl als Cookie (liest der Server beim Laden der Seite); null = wie der Browser
+function setLanguage(code) {
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = code ? `ml_lang=${encodeURIComponent(code)}; Path=/; Max-Age=31536000; SameSite=Strict${secure}` : `ml_lang=; Path=/; Max-Age=0; SameSite=Strict${secure}`;
+  location.reload();
+}
+const ownLanguage = () => /(?:^|;\s*)ml_lang=([^;]+)/.exec(document.cookie)?.[1] || null;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '✅'];
 const enc = new TextEncoder();
@@ -40,8 +68,8 @@ async function api(path, { method = 'GET', body } = {}) {
   });
   let j = {};
   try { j = await res.json(); } catch { /* leer */ }
-  if (res.status === 401 && path !== '/api/login') { showLogin(); throw Object.assign(new Error('Nicht angemeldet'), { status: 401 }); }
-  if (!res.ok) throw Object.assign(new Error(j.error || `Fehler ${res.status}`), { status: res.status, code: j.code || null, retryAfter: j.retryAfter ?? null });
+  if (res.status === 401 && path !== '/api/login') { showLogin(); throw Object.assign(new Error(T('common.notLoggedIn')), { status: 401 }); }
+  if (!res.ok) throw Object.assign(new Error(j.error || T('common.errorStatus', { status: res.status })), { status: res.status, code: j.code || null, retryAfter: j.retryAfter ?? null });
   return j;
 }
 
@@ -53,7 +81,7 @@ const isOwnOther = (m) => !isMine(m) && (m.ownOther === true || (m.name && (S.ot
 const convOf = (m) => (m.dm ? `dm:${isMine(m) ? m.to : m.from}` : `ch:${m.channel ?? 0}`);
 const node = (id) => S.nodes.get(id);
 function nodeName(id) {
-  if (!id) return 'Unbekannt';
+  if (!id) return T('common.unknownName');
   if (id.startsWith('name:')) return id.slice(5);
   const n = node(id);
   if (n?.long) return n.long;
@@ -92,7 +120,7 @@ function renderText(text) {
     const lat = Number(la); const lon = Number(lo);
     if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) continue;
     const d = S.mePos ? ` · ${fmtKm(distKm({ lat: S.mePos[0], lon: S.mePos[1] }, { lat, lon }))}` : '';
-    out += renderMentions(text.slice(last, m.index).replace(/📍\s*$/u, '')) + `<button class="geo" data-geo="${lat},${lon}" title="Auf der Karte zeigen">📍 ${esc(la)}, ${esc(lo)}${d}</button>`;
+    out += renderMentions(text.slice(last, m.index).replace(/📍\s*$/u, '')) + `<button class="geo" data-geo="${lat},${lon}" title="${esc(T('chat.showOnMap'))}">📍 ${esc(la)}, ${esc(lo)}${d}</button>`;
     last = m.index + all.length;
   }
   return out + renderMentions(text.slice(last));
@@ -106,35 +134,34 @@ const relayLabel = (r) => r.name || `#${r.hash}`;
 function msgScope(m) {
   const sc = m.scope;
   if (!sc) return null;
-  if (sc.name) return { text: `🔒 ${sc.name}`, title: `Gesendet mit Scope „${sc.name}“` };
-  if (sc.code === 0) return { text: '🌐', title: 'Ohne Scope gesendet' };
-  if (sc.code > 0) return { text: `🔒 #${sc.code.toString(16)}`, title: 'Mit einem Scope gesendet, dessen Name MeshMonitor nicht kennt' };
+  if (sc.name) return { text: `🔒 ${sc.name}`, title: T('scope.sentWith', { name: sc.name }) };
+  if (sc.code === 0) return { text: '🌐', title: T('scope.sentWithout') };
+  if (sc.code > 0) return { text: `🔒 #${sc.code.toString(16)}`, title: T('scope.sentUnknown') };
   return null;
 }
 function scopeTag(m) {
   const sc = msgScope(m);
   return sc ? `<span class="msg-scope" title="${esc(sc.title)}">${esc(sc.text)}</span>` : '';
 }
-const hashBytesLabel = (r) => (r?.bytes ? `${r.bytes}-Byte` : '');
 // Empfangene Nachricht: Weg vom Absender zu uns (Repeater-Kennungen aus dem Paket)
 function routeBadge(m) {
   const r = m.route;
   if (!r) return (m.hops != null ? `<span class="hops">${m.hops}↯</span>` : '') + scopeTag(m);
   const n = r.hops.length;
   const fixed = !n && r.route === 'DIRECT';
-  const title = n ? `Über ${n} Repeater empfangen (${r.bytes || '?'}-Byte-Kennungen) – antippen für den Weg` : fixed ? 'Über eine feste Route empfangen' : 'Direkt empfangen, ohne Repeater';
-  return `<button class="heard route" data-heard="${esc(m.id)}" title="${title}" aria-expanded="${S.expanded.has(m.id)}">↳ ${n ? `${n} Hop${n === 1 ? '' : 's'}${r.bytes ? ` · ${r.bytes}B` : ''}` : fixed ? 'Route' : 'direkt'}</button>${scopeTag(m)}`;
+  const title = n ? T('route.viaTitle', { n, bytes: r.bytes || '?' }) : fixed ? T('route.fixedTitle') : T('route.directTitle');
+  return `<button class="heard route" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">↳ ${n ? `${T('common.hops', { n })}${r.bytes ? ` · ${r.bytes}B` : ''}` : fixed ? T('route.fixedShort') : T('common.direct')}</button>${scopeTag(m)}`;
 }
 function routeList(m) {
   const r = m.route;
   if (!r) return '';
   const rows = r.hops.map((h, i) => `<div class="heard-row"><span class="heard-hop">${i + 1}</span><span class="heard-name">${esc(relayLabel(h))}${h.name ? `<small>${esc(h.hash)}</small>` : ''}</span></div>`).join('');
   const end = (label) => `<div class="heard-row route-end"><span class="heard-hop">•</span><span class="heard-name">${esc(label)}</span></div>`;
-  const direct = !r.hops.length ? `<div class="heard-empty">${r.route === 'DIRECT' ? 'Über eine feste Route empfangen – Repeater stehen nicht im Paket.' : 'Direkt empfangen, ohne Repeater.'}</div>` : '';
+  const direct = !r.hops.length ? `<div class="heard-empty">${r.route === 'DIRECT' ? T('route.fixedNote') : T('route.directNote')}</div>` : '';
   return `<div class="heard-list">
-    <div class="heard-head">Weg zu dir${r.bytes ? ` · ${hashBytesLabel(r)}-Kennungen` : ''}${msgScope(m) ? ` · Scope ${esc(msgScope(m).text)}` : ''}</div>
-    ${end(nodeName(m.from))}${rows}${direct}${end('Du')}
-    ${r.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">🗺️ Weg auf Karte zeigen</button>` : ''}
+    <div class="heard-head">${T('route.toYou')}${r.bytes ? ` · ${T('route.hashBytes', { n: r.bytes })}` : ''}${msgScope(m) ? ` · Scope ${esc(msgScope(m).text)}` : ''}</div>
+    ${end(nodeName(m.from))}${rows}${direct}${end(T('common.you'))}
+    ${r.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${T('route.showMap')}</button>` : ''}
   </div>`;
 }
 // ------------------------------------------------------------------ Resend
@@ -157,21 +184,21 @@ function resendInfo(m) {
 }
 function resendButton(m) {
   const r = resendInfo(m);
-  return r?.state === 'ready' ? `<button class="resend" data-resend="${esc(m.id)}" title="Gleichen Text noch einmal senden">↻ Nochmal</button>` : '';
+  return r?.state === 'ready' ? `<button class="resend" data-resend="${esc(m.id)}" title="${esc(T('resend.title'))}">${T('resend.button')}</button>` : '';
 }
 async function resend(id) {
   const m = S.msgs.get(id);
   const info = m && resendInfo(m);
-  if (info?.state !== 'ready') { toast(info?.state === 'max' ? `Schon ${RESEND_MAX}× wiederholt` : 'Gerade nicht möglich'); return; }
+  if (info?.state !== 'ready') { toast(info?.state === 'max' ? T('resend.max', { n: RESEND_MAX }) : T('resend.notNow')); return; }
   const r = { n: info.tries, t: Date.now(), busy: true };
   S.resends.set(id, r); scheduleRender();
   try {
     const res = await api('/api/resend', { method: 'POST', body: { id } });
     r.n = res.resendCount ?? r.n + 1;
-    toast(`Erneut gesendet (${r.n}/${RESEND_MAX}) – gleiche Nachricht, keine Dopplung`);
+    toast(T('resend.done', { n: r.n, max: RESEND_MAX }));
   } catch (e) {
-    const why = { ALREADY_HEARD: 'ein Repeater hat sie schon weitergesendet', ALREADY_DELIVERED: 'sie ist schon zugestellt', RESEND_TOO_OLD: 'sie ist älter als 1 Stunde', MESSAGE_NOT_FOUND: 'MeshMonitor kennt sie nicht (mehr)', NOT_OWN_MESSAGE: 'sie stammt nicht von dieser Quelle' }[e.code];
-    toast(e.status === 403 ? 'Keine Berechtigung zum Senden (messages:write)' : e.code === 'TX_DISABLED' ? 'Senden ist für diese Quelle gesperrt' : `Nicht erneut gesendet: ${why || e.message}`);
+    const why = { ALREADY_HEARD: T('resend.whyHeard'), ALREADY_DELIVERED: T('resend.whyDelivered'), RESEND_TOO_OLD: T('resend.whyOld'), MESSAGE_NOT_FOUND: T('resend.whyUnknown'), NOT_OWN_MESSAGE: T('resend.whyNotOwn') }[e.code];
+    toast(e.status === 403 ? T('common.noSendPerm') : e.code === 'TX_DISABLED' ? T('common.txDisabled') : T('resend.failed', { why: why || e.message }));
     if (why) r.n = RESEND_MAX; // dauerhaft nicht möglich -> Knopf ausblenden
   }
   r.busy = false; r.t = Date.now();
@@ -189,11 +216,11 @@ function heardBadge(m) {
     const o = m.outRoute;
     if (!o) return '';
     const k = o.hops.length;
-    return `<button class="heard route" data-heard="${esc(m.id)}" title="Weg zum Empfänger – antippen für Details" aria-expanded="${S.expanded.has(m.id)}">↪ ${k ? `${k} Hop${k === 1 ? '' : 's'}` : o.flood ? 'Flood' : 'direkt'}</button>`;
+    return `<button class="heard route" data-heard="${esc(m.id)}" title="${esc(T('heard.outTitle'))}" aria-expanded="${S.expanded.has(m.id)}">↪ ${k ? T('common.hops', { n: k }) : o.flood ? 'Flood' : T('common.direct')}</button>`;
   }
   const waiting = !n && Date.now() - m.ts < ECHO_WINDOW_MS;
-  const title = n ? `Von ${n} Repeater${n === 1 ? '' : 'n'} gehört – antippen für Details` : waiting ? 'Warte auf Repeater …' : 'Kein Repeater gehört';
-  return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${title}" aria-expanded="${S.expanded.has(m.id)}">📡 ${waiting ? '…' : n}</button>`;
+  const title = n ? T('heard.byTitle', { n }) : waiting ? T('heard.waiting') : T('heard.none');
+  return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">📡 ${waiting ? '…' : n}</button>`;
 }
 function heardList(m) {
   if (!S.expanded.has(m.id)) return '';
@@ -201,10 +228,10 @@ function heardList(m) {
   const list = m.heard || [];
   const out = m.dm ? outRouteList(m) : '';
   if (!list.length && out) return out;
-  if (!list.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - m.ts < ECHO_WINDOW_MS ? 'Warte auf Repeater …' : 'Kein Repeater hat diese Nachricht hörbar weitergesendet.'}</div></div>`;
+  if (!list.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - m.ts < ECHO_WINDOW_MS ? T('heard.waiting') : T('heard.noneLong')}</div></div>`;
   return `${out}<div class="heard-list">
-    <div class="heard-head">Gehört über ${list.length} Repeater</div>
-    ${list.map((r) => `<div class="heard-row"><span class="heard-hop" title="Position im Weg">${r.hops}</span><span class="heard-name">${esc(relayLabel(r))}${r.name ? `<small>${esc(r.hash)}</small>` : ''}</span><span class="heard-snr">${r.snr != null ? `SNR ${esc(r.snr)}` : r.hops === 1 ? 'direkt' : ''}</span></div>`).join('')}
+    <div class="heard-head">${T('heard.via', { n: list.length })}</div>
+    ${list.map((r) => `<div class="heard-row"><span class="heard-hop" title="${esc(T('heard.posTitle'))}">${r.hops}</span><span class="heard-name">${esc(relayLabel(r))}${r.name ? `<small>${esc(r.hash)}</small>` : ''}</span><span class="heard-snr">${r.snr != null ? `SNR ${esc(r.snr)}` : r.hops === 1 ? T('common.direct') : ''}</span></div>`).join('')}
   </div>`;
 }
 // Zugestellte eigene DM: Weg zum Empfänger, wie ihn der Empfänger mit der Bestätigung zurückgemeldet hat
@@ -214,13 +241,13 @@ function outRouteList(m) {
   const to = nodeName(m.to);
   const end = (label) => `<div class="heard-row route-end"><span class="heard-hop">•</span><span class="heard-name">${esc(label)}</span></div>`;
   const rows = o.hops.map((h, i) => `<div class="heard-row"><span class="heard-hop">${i + 1}</span><span class="heard-name">${esc(relayLabel(h))}${h.name ? `<small>${esc(h.hash)}</small>` : ''}</span></div>`).join('');
-  const note = o.hops.length ? '' : `<div class="heard-empty">${o.flood ? 'Dein Gerät kennt keinen festen Weg – es schickt per Flood über alle Repeater.' : 'Direkt zugestellt, ohne Repeater.'}</div>`;
+  const note = o.hops.length ? '' : `<div class="heard-empty">${o.flood ? T('out.floodNote') : T('out.directNote')}</div>`;
   return `<div class="heard-list">
-    <div class="heard-head">Weg zu ${esc(to)}${o.bytes ? ` · ${o.bytes}-Byte-Kennungen` : ''}</div>
-    ${end('Du')}${rows}${note}${end(to)}
-    <div class="heard-empty">Gemeldet mit der Zustellbestätigung – diesen Weg nutzt dein Gerät für DMs an ${esc(to)}.</div>
-    ${o.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">🗺️ Weg auf Karte zeigen</button>` : ''}
-    ${o.hops.length ? `<button class="route-map" data-route-reset="${esc(m.id)}">↺ Pfad zurücksetzen (nächste DM per Flood)</button>` : ''}
+    <div class="heard-head">${T('out.to', { name: esc(to) })}${o.bytes ? ` · ${T('route.hashBytes', { n: o.bytes })}` : ''}</div>
+    ${end(T('common.you'))}${rows}${note}${end(to)}
+    <div class="heard-empty">${T('out.reported', { name: esc(to) })}</div>
+    ${o.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${T('route.showMap')}</button>` : ''}
+    ${o.hops.length ? `<button class="route-map" data-route-reset="${esc(m.id)}">${T('out.reset')}</button>` : ''}
   </div>`;
 }
 // Pfad zum Empfänger einer DM zurücksetzen (wie auf der Node-Seite); danach geht die nächste DM per Flood
@@ -229,7 +256,7 @@ async function resetDmPath(m) {
     await api('/api/node/reset-path', { method: 'POST', body: { id: m.to } });
     return true;
   } catch (e) {
-    toast(e.status === 403 ? 'Keine Berechtigung (nodes:write)' : `Pfad nicht zurückgesetzt: ${e.message}`);
+    toast(e.status === 403 ? T('common.noPerm', { perm: 'nodes:write' }) : T('path.resetFailed', { msg: e.message }));
     return false;
   }
 }
@@ -237,12 +264,12 @@ async function floodResend(id) {
   const m = S.msgs.get(id);
   if (!m || !m.dm || S.conv !== `dm:${m.to}`) return;
   if (!(await resetDmPath(m))) return;
-  toast('Pfad zurückgesetzt – sende neu per Flood …');
+  toast(T('path.resetFlooding'));
   await sendText(m.text);
 }
 // ------------------------------------------------------------------ Unterhaltungen
 const channelScope = (idx) => S.channels.find((c) => c.index === idx)?.scope || null;
-const channelName = (idx) => S.channels.find((c) => c.index === idx)?.name || (idx === 0 ? 'Primär' : `Kanal ${idx}`);
+const channelName = (idx) => S.channels.find((c) => c.index === idx)?.name || (idx === 0 ? T('channel.primary') : T('channel.n', { i: idx }));
 function convTitle(key) {
   return key.startsWith('dm:') ? nodeName(key.slice(3)) : channelName(Number(key.slice(3)));
 }
@@ -270,10 +297,10 @@ function effectiveScope(idx) {
 }
 function scopeLabel(idx, long = false) {
   const e = effectiveScope(idx);
-  if (e.from === 'unknown') return long ? 'Scope: Standard der Quelle' : '🌐 Standard';
-  const base = e.scope ? `🔒 ${e.scope}` : '🌐 ohne Scope';
+  if (e.from === 'unknown') return long ? T('scope.sourceDefaultLong') : T('scope.defaultShort');
+  const base = e.scope ? `🔒 ${e.scope}` : T('scope.none');
   if (!long) return base;
-  return `${base}${e.from === 'own' ? ' · deine Wahl' : e.from === 'default' ? ' · Standard der Quelle' : ''}`;
+  return `${base}${e.from === 'own' ? ` · ${T('scope.own')}` : e.from === 'default' ? ` · ${T('scope.sourceDefault')}` : ''}`;
 }
 async function loadScopes() {
   if (S.source?.protocol !== 'meshcore') return;
@@ -284,19 +311,19 @@ function openScopePicker(idx) {
   const cur = S.scopeOverride[scopeKey(idx)];
   const ch = channelScope(idx);
   const def = S.scopeInfo?.defaultScope;
-  const known = [...new Set([...(S.scopeInfo?.regions || []), ...S.channels.map((c) => c.scope).filter(Boolean), def].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  const known = [...new Set([...(S.scopeInfo?.regions || []), ...S.channels.map((c) => c.scope).filter(Boolean), def].filter(Boolean))].sort((a, b) => a.localeCompare(b, LOC));
   const opt = (val, label, sub = '') => {
     const active = val === null ? typeof cur !== 'string' : cur === val;
     return `<button class="sheet-btn scope-opt ${active ? 'active' : ''}" data-scope="${val === null ? '__inherit' : esc(val)}"><span>${label}${sub ? `<small>${sub}</small>` : ''}</span>${active ? `<i>${ICON.check}</i>` : ''}</button>`;
   };
   openSheet(`
-    <div class="sheet-title">Scope für ${esc(channelName(idx))}</div>
-    ${opt(null, `Wie in MeshMonitor eingestellt`, ch ? `Kanal: 🔒 ${esc(ch)}` : def ? `Standard der Quelle: 🔒 ${esc(def)}` : 'ohne Scope bzw. Standard der Quelle')}
-    ${opt('', '🌐 Ohne Scope', 'Wird von Repeatern mit Region-Filter evtl. nicht weitergeleitet')}
+    <div class="sheet-title">${T('scope.title', { name: esc(channelName(idx)) })}</div>
+    ${opt(null, T('scope.inherit'), ch ? T('scope.inheritChannel', { scope: esc(ch) }) : def ? T('scope.inheritDefault', { scope: esc(def) }) : T('scope.inheritNone'))}
+    ${opt('', T('scope.optNone'), T('scope.optNoneSub'))}
     ${known.map((r) => opt(r, `🔒 ${esc(r)}`)).join('')}
-    <form class="custom-emoji" id="scope-form"><input id="scope-in" maxlength="63" placeholder="Anderer Scope, z. B. de-by" autocomplete="off" autocapitalize="off"><button class="sheet-btn primary" type="submit">Übernehmen</button></form>
-    <div class="hint">Gilt für deine Nachrichten aus dieser App in diesem Kanal. Die Einstellung in MeshMonitor bleibt unverändert.</div>
-    <button class="sheet-btn cancel" data-close>Schließen</button>`, (e) => {
+    <form class="custom-emoji" id="scope-form"><input id="scope-in" maxlength="63" placeholder="${esc(T('scope.customPh'))}" autocomplete="off" autocapitalize="off"><button class="sheet-btn primary" type="submit">${T('common.apply')}</button></form>
+    <div class="hint">${T('scope.hint')}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     const b = e.target.closest('[data-scope]');
     if (!b) return;
     setScope(idx, b.dataset.scope === '__inherit' ? null : b.dataset.scope);
@@ -312,7 +339,7 @@ function setScope(idx, val) {
   if (val === null) delete o[scopeKey(idx)]; else o[scopeKey(idx)] = val;
   S.scopeOverride = o; save('scopeOverride', o);
   closeSheet();
-  toast(`Senden mit ${scopeLabel(idx)}`);
+  toast(T('scope.sendingWith', { label: scopeLabel(idx) }));
   scheduleRender();
 }
 // ------------------------------------------------------------------ Benachrichtigung je Chat (pro Gerät)
@@ -327,19 +354,19 @@ function openConvPrefs(key) {
   const pushOn = Boolean(S.pushEndpoint);
   const opt = (val, label, sub) => `<button class="sheet-btn scope-opt ${cur === val ? 'active' : ''}" data-pref="${val || 'std'}"><span>${label}<small>${sub}</small></span>${cur === val ? `<i>${ICON.check}</i>` : ''}</button>`;
   openSheet(`
-    <div class="sheet-title">Benachrichtigungen für ${esc(convTitle(key))}</div>
-    ${opt(null, '🔔 Standard', isCh ? 'Nur wenn dich jemand erwähnt (@Name) oder auf deine Nachricht reagiert' : 'Jede Nachricht')}
-    ${isCh ? opt('all', '📣 Alle Nachrichten', 'Jede Nachricht in diesem Kanal melden') : ''}
-    ${opt('mute', '🔕 Stumm', 'Kein Zähler, kein Hinweis, kein Push')}
-    <div class="hint">Gilt nur auf diesem Gerät.${pushOn ? '' : ' Push ist hier aus – einschalten im Menü ☰.'}</div>
-    <button class="sheet-btn cancel" data-close>Schließen</button>`, (e) => {
+    <div class="sheet-title">${T('prefs.title', { name: esc(convTitle(key)) })}</div>
+    ${opt(null, T('prefs.std'), isCh ? T('prefs.stdChannel') : T('prefs.stdDm'))}
+    ${isCh ? opt('all', T('prefs.all'), T('prefs.allSub')) : ''}
+    ${opt('mute', T('prefs.mute'), T('prefs.muteSub'))}
+    <div class="hint">${T('common.thisDeviceOnly')}${pushOn ? '' : ` ${T('prefs.pushOff')}`}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     const b = e.target.closest('[data-pref]');
     if (!b) return;
     const o = { ...S.convPrefs };
     if (b.dataset.pref === 'std') delete o[prefKey(key)]; else o[prefKey(key)] = b.dataset.pref;
     S.convPrefs = o; save('convPrefs', o);
     closeSheet();
-    toast({ std: 'Benachrichtigungen: Standard', all: 'Jede Nachricht wird gemeldet', mute: 'Chat ist stumm' }[b.dataset.pref]);
+    toast({ std: T('prefs.toastStd'), all: T('prefs.toastAll'), mute: T('prefs.toastMute') }[b.dataset.pref]);
     if (S.pushEndpoint) subscribePush().catch(() => {}); // Einstellung an den Server geben (für Push)
     scheduleRender();
   });
@@ -355,13 +382,13 @@ function openWatch() {
   const pushOn = Boolean(S.pushEndpoint);
   const pills = (list, cur, attr, fmt) => list.map((v) => `<button class="pill ${cur === v ? 'primary-pill' : ''}" data-${attr}="${v ?? ''}">${fmt(v)}</button>`).join('');
   openSheet(`
-    <div class="sheet-title">Repeater-Wächter</div>
-    <div class="watch-intro">Push, wenn einer deiner <b>Favoriten-Repeater</b> zu lange nicht gehört wird oder sein Akku schwach ist – und Entwarnung, wenn alles wieder passt.</div>
-    <button class="sheet-btn ${w.on ? 'primary' : ''}" data-w="toggle">${w.on ? '✔ Wächter ist an – ausschalten' : 'Wächter einschalten'}</button>
-    <div class="watch-row"><small>Melden, wenn still seit</small><div class="node-actions">${pills(WATCH_HOURS, w.hours, 'wh', (v) => `${v} Std.`)}</div></div>
-    <div class="watch-row"><small>Akku-Warnung unter</small><div class="node-actions">${pills(WATCH_VOLTS, w.volts, 'wv', (v) => (v ? `${nf(v, 1)} V` : 'aus'))}</div></div>
-    <div class="hint">${favs.length ? `Überwacht: ${favs.map((n) => esc(n.long || n.short)).join(', ')}.` : 'Noch keine Favoriten-Repeater – in Kontakte → Repeater auf ☆ tippen.'} Akkuwerte gibt es nur, wenn MeshMonitor den Status der Repeater abfragt.${pushOn ? '' : ' <b>Push ist auf diesem Gerät aus</b> – erst im Menü einschalten.'}</div>
-    <button class="sheet-btn cancel" data-close>Fertig</button>`, (e) => {
+    <div class="sheet-title">${T('watch.title')}</div>
+    <div class="watch-intro">${T('watch.intro')}</div>
+    <button class="sheet-btn ${w.on ? 'primary' : ''}" data-w="toggle">${w.on ? T('watch.isOn') : T('watch.enable')}</button>
+    <div class="watch-row"><small>${T('watch.silentFor')}</small><div class="node-actions">${pills(WATCH_HOURS, w.hours, 'wh', (v) => T('watch.hours', { n: v }))}</div></div>
+    <div class="watch-row"><small>${T('watch.batteryBelow')}</small><div class="node-actions">${pills(WATCH_VOLTS, w.volts, 'wv', (v) => (v ? `${nf(v, 1)} V` : T('common.off')))}</div></div>
+    <div class="hint">${favs.length ? T('watch.watching', { list: favs.map((n) => esc(n.long || n.short)).join(', ') }) : T('watch.noFavs')} ${T('watch.batNote')}${pushOn ? '' : ` ${T('watch.pushOff')}`}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.done')}</button>`, (e) => {
     const b = e.target.closest('[data-w], [data-wh], [data-wv]');
     if (!b) return;
     const nw = { ...S.watch };
@@ -369,8 +396,8 @@ function openWatch() {
     if (b.dataset.wh) nw.hours = Number(b.dataset.wh);
     if ('wv' in b.dataset) nw.volts = b.dataset.wv ? Number(b.dataset.wv) : null;
     S.watch = nw; save('watch', nw);
-    if (S.pushEndpoint) subscribePush().catch(() => toast('Einstellung nicht übertragen – später nochmal'));
-    if (b.dataset.w === 'toggle' && nw.on && !S.pushEndpoint) toast('Wächter an – meldet sich aber erst, wenn Push eingeschaltet ist');
+    if (S.pushEndpoint) subscribePush().catch(() => toast(T('watch.notSaved')));
+    if (b.dataset.w === 'toggle' && nw.on && !S.pushEndpoint) toast(T('watch.needsPush'));
     openWatch();
   });
 }
@@ -498,30 +525,29 @@ const hm = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(
 function dayLabel(ts) {
   const d = new Date(ts); const t = new Date();
   const y = new Date(); y.setDate(t.getDate() - 1);
-  if (d.toDateString() === t.toDateString()) return 'Heute';
-  if (d.toDateString() === y.toDateString()) return 'Gestern';
-  return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: d.getFullYear() === t.getFullYear() ? undefined : 'numeric' });
+  if (d.toDateString() === t.toDateString()) return T('common.today');
+  if (d.toDateString() === y.toDateString()) return T('common.yesterday');
+  return d.toLocaleDateString(LOC, { weekday: 'short', day: '2-digit', month: '2-digit', year: d.getFullYear() === t.getFullYear() ? undefined : 'numeric' });
 }
 function listTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  return d.toDateString() === new Date().toDateString() ? hm(ts) : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? hm(ts) : d.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' });
 }
 function ago(ts) {
-  if (!ts) return 'unbekannt';
+  if (!ts) return T('common.unknown');
   const s = (Date.now() - ts) / 1000;
-  if (s < 90) return 'gerade eben';
-  if (s < 3600) return `vor ${Math.round(s / 60)} Min.`;
-  if (s < 86400) return `vor ${Math.round(s / 3600)} Std.`;
-  const d = Math.round(s / 86400);
-  return d === 1 ? "vor 1 Tag" : `vor ${d} Tagen`;
+  if (s < 90) return T('ago.now');
+  if (s < 3600) return T('ago.minutes', { n: Math.round(s / 60) });
+  if (s < 86400) return T('ago.hours', { n: Math.round(s / 3600) });
+  return T('ago.days', { n: Math.round(s / 86400) });
 }
 function stateIcon(st) {
   if (!st) return '';
-  if (/fail|error|nak|timeout/.test(st)) return '<span class="st st-fail" title="Nicht zugestellt – keine Bestätigung">!</span>';
-  if (/deliver|ack|confirm|received|read/.test(st)) return '<span class="st st-ok" title="Zugestellt">✓✓</span>';
-  if (/sent|transmit|broadcast/.test(st)) return '<span class="st" title="Gesendet">✓</span>';
-  return '<span class="st st-wait" title="Ausstehend">◷</span>';
+  if (/fail|error|nak|timeout/.test(st)) return `<span class="st st-fail" title="${esc(T('state.failed'))}">!</span>`;
+  if (/deliver|ack|confirm|received|read/.test(st)) return `<span class="st st-ok" title="${esc(T('state.delivered'))}">✓✓</span>`;
+  if (/sent|transmit|broadcast/.test(st)) return `<span class="st" title="${esc(T('state.sent'))}">✓</span>`;
+  return `<span class="st st-wait" title="${esc(T('state.pending'))}">◷</span>`;
 }
 function avatar(id, cls = '') {
   const isCh = id.startsWith('ch:');
@@ -552,6 +578,7 @@ const ICON = {
   refresh: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5"/></svg>',
   home: '<svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg>',
   megaphone: '<svg viewBox="0 0 24 24"><path d="M4 10v4h3l8 4V6l-8 4z"/><path d="M18 9.5a3.5 3.5 0 0 1 0 5M8 14.5V19"/></svg>',
+  globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.2 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.2-3.6-8.5s1.2-6.2 3.6-8.5z"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" class="fill"/></svg>',
 };
 
@@ -582,7 +609,7 @@ wideMq.addEventListener?.('change', () => {
 function renderEmptyMain() {
   const app = $('#app');
   if ($('.view-empty', app)) return;
-  app.innerHTML = `<div class="view view-empty"><div class="empty-main"><img src="/icons/icon.svg" alt=""><b>MeshLink Chat</b><span>Wähle links einen Kanal oder Chat.</span></div></div>`;
+  app.innerHTML = `<div class="view view-empty"><div class="empty-main"><img src="/icons/icon.svg" alt=""><b>MeshLink Chat</b><span>${T('main.pick')}</span></div></div>`;
 }
 
 function render() {
@@ -607,9 +634,9 @@ function render() {
 }
 
 function statusLine() {
-  if (!S.sse) return '<span class="dot dot-warn"></span>Verbinde …';
-  if (!S.connected) return `<span class="dot dot-bad"></span>MeshMonitor nicht erreichbar`;
-  return `<span class="dot dot-ok"></span>${esc(S.source?.name || 'verbunden')}`;
+  if (!S.sse) return `<span class="dot dot-warn"></span>${T('status.connecting')}`;
+  if (!S.connected) return `<span class="dot dot-bad"></span>${T('status.mmDown')}`;
+  return `<span class="dot dot-ok"></span>${esc(S.source?.name || T('status.connected'))}`;
 }
 
 function renderList(app = $('#app')) {
@@ -617,13 +644,13 @@ function renderList(app = $('#app')) {
     app.innerHTML = `
       <div class="view view-list">
         <header class="bar">
-          <button class="icon-btn" id="menu-btn" aria-label="Menü öffnen">${ICON.menu}</button>
+          <button class="icon-btn" id="menu-btn" aria-label="${esc(T('list.menu'))}">${ICON.menu}</button>
           <div class="bar-title"><h1>MeshLink Chat</h1><div class="sub" id="status"></div></div>
-          <button class="icon-btn" id="search-btn" aria-label="Suchen">${ICON.search}</button>
-          <button class="icon-btn" id="contacts-btn" aria-label="Kontakte">${ICON.people}</button>
+          <button class="icon-btn" id="search-btn" aria-label="${esc(T('list.search'))}">${ICON.search}</button>
+          <button class="icon-btn" id="contacts-btn" aria-label="${esc(T('list.contacts'))}">${ICON.people}</button>
         </header>
         <main class="scroll" id="convs"></main>
-        <button class="fab" id="new-dm" aria-label="Neue Direktnachricht">${ICON.plus}</button>
+        <button class="fab" id="new-dm" aria-label="${esc(T('list.newDm'))}">${ICON.plus}</button>
       </div>`;
     $('#menu-btn').onclick = openDrawer;
     $('#contacts-btn').onclick = () => go('contacts');
@@ -638,26 +665,26 @@ function renderList(app = $('#app')) {
   const { channels, dms } = conversations();
   const item = (c) => {
     const l = c.last;
-    let preview = '<span class="muted">Noch keine Nachrichten</span>';
+    let preview = `<span class="muted">${T('list.noMsgs')}</span>`;
     if (l) {
-      const who = isMine(l) ? 'Du: ' : isOwnOther(l) ? `Du (${esc(l.name)}): ` : c.key.startsWith('ch:') ? `${esc(nodeName(l.from))}: ` : '';
+      const who = isMine(l) ? `${T('common.you')}: ` : isOwnOther(l) ? `${T('list.youVia', { name: esc(l.name) })}: ` : c.key.startsWith('ch:') ? `${esc(nodeName(l.from))}: ` : '';
       preview = `${who}${esc(l.text.replace(/@\[([^\]]{1,40})\]/g, '@$1'))}`;
     }
     return `
       <button class="conv" data-conv="${esc(c.key)}">
         ${avatar(c.key)}
         <div class="conv-body">
-          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ' <small class="conv-flag" title="stumm">🔕</small>' : convPref(c.key) === 'all' ? ' <small class="conv-flag" title="alle Nachrichten werden gemeldet">📣</small>' : ''}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
+          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ` <small class="conv-flag" title="${esc(T('list.mutedFlag'))}">🔕</small>` : convPref(c.key) === 'all' ? ` <small class="conv-flag" title="${esc(T('list.allFlag'))}">📣</small>` : ''}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
           <div class="conv-bottom"><span class="conv-preview">${preview}</span>${c.unread ? `<span class="badge">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}</div>
         </div>
       </button>`;
   };
   $('#convs').innerHTML = `
     ${S.error && S.sse ? `<div class="banner">${esc(S.error)}</div>` : ''}
-    <div class="section">Kanäle</div>
-    ${channels.map(item).join('') || '<div class="empty">Keine Kanäle gefunden</div>'}
-    <div class="section">Direktnachrichten</div>
-    ${dms.map(item).join('') || '<div class="empty">Noch keine Direktnachrichten.<br>Tippe auf + um eine zu starten.</div>'}`;
+    <div class="section">${T('list.channels')}</div>
+    ${channels.map(item).join('') || `<div class="empty">${T('list.noChannels')}</div>`}
+    <div class="section">${T('list.dms')}</div>
+    ${dms.map(item).join('') || `<div class="empty">${T('list.noDms')}</div>`}`;
   updateBadge();
 }
 
@@ -669,22 +696,22 @@ function renderChat() {
     app.innerHTML = `
       <div class="view view-chat">
         <header class="bar">
-          <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
+          <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
           ${avatar(key, 'small')}
           <div class="bar-title"><h2 id="chat-title"></h2><div class="sub" id="chat-sub"></div></div>
-          <button class="icon-btn bell-btn" id="notif-btn" aria-label="Benachrichtigungen für diesen Chat"></button>
+          <button class="icon-btn bell-btn" id="notif-btn" aria-label="${esc(T('chat.notifBtn'))}"></button>
         </header>
         <main class="scroll msgs" id="msgs"></main>
-        <button class="jump hidden" id="jump" aria-label="Nach unten">${ICON.down}</button>
+        <button class="jump hidden" id="jump" aria-label="${esc(T('chat.jump'))}">${ICON.down}</button>
         <footer class="composer-wrap">
           <div class="reply-bar hidden" id="reply-bar"></div>
           <form class="composer" id="composer">
-            ${key.startsWith('ch:') ? '<button type="button" class="scope-chip hidden" id="scope-chip" aria-label="Scope wählen"></button>' : ''}
-            <button type="button" class="emoji-btn" id="emoji-btn" aria-label="Emoji einfügen" title="Emoji einfügen">😊</button>
-            <button type="button" class="loc-btn" id="loc-btn" aria-label="Standort einfügen" title="Meinen Standort einfügen">📍</button>
-            <textarea id="input" rows="1" placeholder="Nachricht" enterkeyhint="send" autocomplete="off"></textarea>
+            ${key.startsWith('ch:') ? `<button type="button" class="scope-chip hidden" id="scope-chip" aria-label="${esc(T('chat.scopePick'))}"></button>` : ''}
+            <button type="button" class="emoji-btn" id="emoji-btn" aria-label="${esc(T('chat.emoji'))}" title="${esc(T('chat.emoji'))}">😊</button>
+            <button type="button" class="loc-btn" id="loc-btn" aria-label="${esc(T('chat.loc'))}" title="${esc(T('chat.locTitle'))}">📍</button>
+            <textarea id="input" rows="1" placeholder="${esc(T('chat.placeholder'))}" enterkeyhint="send" autocomplete="off"></textarea>
             <span class="count" id="count"></span>
-            <button class="send" id="send" type="submit" aria-label="Senden">${ICON.send}</button>
+            <button class="send" id="send" type="submit" aria-label="${esc(T('common.send'))}">${ICON.send}</button>
           </form>
         </footer>
       </div>`;
@@ -712,12 +739,12 @@ function renderChat() {
   $('#notif-btn').innerHTML = pref === 'mute' ? '<span>🔕</span>' : pref === 'all' ? '<span>📣</span>' : ICON.bell;
   if (key.startsWith('dm:')) {
     const n = node(key.slice(3));
-    const bits = [n?.short ? esc(n.short) : null, `zuletzt gehört ${ago(n?.lastHeard)}`, n?.hops != null ? `${n.hops} Hop${n.hops === 1 ? '' : 's'}` : null];
+    const bits = [n?.short ? esc(n.short) : null, T('chat.lastHeard', { ago: ago(n?.lastHeard) }), n?.hops != null ? T('common.hops', { n: n.hops }) : null];
     $('#chat-sub').innerHTML = bits.filter(Boolean).join(' · ');
   } else {
     const idx = Number(key.slice(3));
     $('#chat-sub').innerHTML = S.connected
-      ? `Kanal ${esc(key.slice(3))}${S.source?.protocol === 'meshcore' ? ` · <span class="scope-sub ${effectiveScope(idx).from === 'own' ? 'own' : ''}">${esc(scopeLabel(idx, true))}</span>` : ` · ${esc(S.source?.name || '')}`}`
+      ? `${T('channel.n', { i: esc(key.slice(3)) })}${S.source?.protocol === 'meshcore' ? ` · <span class="scope-sub ${effectiveScope(idx).from === 'own' ? 'own' : ''}">${esc(scopeLabel(idx, true))}</span>` : ` · ${esc(S.source?.name || '')}`}`
       : statusLine();
     const chip = $('#scope-chip');
     if (chip) {
@@ -756,7 +783,7 @@ function renderMessages() {
   for (const m of list) {
     const day = dayLabel(m.ts);
     if (day !== lastDay) { html += `<div class="day"><span>${esc(day)}</span></div>`; lastDay = day; prev = null; }
-    if (m === firstNew) { html += `<div class="unread-line" id="unread-line"><span>${newCount} neue Nachricht${newCount === 1 ? '' : 'en'}</span></div>`; prev = null; }
+    if (m === firstNew) { html += `<div class="unread-line" id="unread-line"><span>${T('chat.newMsgs', { n: newCount })}</span></div>`; prev = null; }
     const other = isOwnOther(m);
     const mine = isMine(m) || other;
     const grouped = prev && prev.from === m.from && m.ts - prev.ts < 5 * 60000;
@@ -765,7 +792,7 @@ function renderMessages() {
     const chips = new Map();
     for (const r of rs) {
       const c = chips.get(r.emoji) || { n: 0, mine: false, who: [] };
-      c.n++; c.mine ||= isMine(r); c.who.push(isMine(r) ? 'Du' : nodeName(r.from));
+      c.n++; c.mine ||= isMine(r); c.who.push(isMine(r) ? T('common.you') : nodeName(r.from));
       chips.set(r.emoji, c);
     }
     html += `
@@ -774,8 +801,8 @@ function renderMessages() {
         <div class="bubble-col">
           <div class="bubble">
             ${!mine && isCh && !grouped ? `<div class="sender" style="--h:${hue('dm:' + m.from)}">${esc(nodeName(m.from))}</div>` : ''}
-            ${other && !grouped ? `<div class="via">via ${esc(m.name)}</div>` : ''}
-            ${tgt ? `<div class="quote" data-jump="${esc(tgt.id)}"><b>${esc(isMine(tgt) ? 'Du' : nodeName(tgt.from))}</b><span>${esc(tgt.text)}</span></div>` : m.replyId != null ? '<div class="quote"><span class="muted">Antwort auf eine ältere Nachricht</span></div>' : ''}
+            ${other && !grouped ? `<div class="via">${T('chat.via', { name: esc(m.name) })}</div>` : ''}
+            ${tgt ? `<div class="quote" data-jump="${esc(tgt.id)}"><b>${esc(isMine(tgt) ? T('common.you') : nodeName(tgt.from))}</b><span>${esc(tgt.text)}</span></div>` : m.replyId != null ? `<div class="quote"><span class="muted">${T('chat.replyOld')}</span></div>` : ''}
             <div class="text">${renderText(m.text)}</div>
             ${heardList(m)}
             <div class="meta">${heardBadge(m)}${isMine(m) || isOwnOther(m) ? scopeTag(m) : ''}${resendButton(m)}${m.hops != null && !mine && S.source?.protocol !== 'meshcore' ? `<span class="hops">${m.hops}↯</span>` : ''}${hm(m.ts)}${mine ? stateIcon(m.state) : ''}</div>
@@ -785,7 +812,7 @@ function renderMessages() {
       </div>`;
     prev = m;
   }
-  if (!list.length) html = '<div class="empty chat-empty">Noch keine Nachrichten.<br>Sag Hallo 👋</div>';
+  if (!list.length) html = `<div class="empty chat-empty">${T('chat.empty')}</div>`;
   el.innerHTML = html;
   if (S.jumpTo) {
     const row = el.querySelector(`[data-id="${CSS.escape(S.jumpTo)}"]`);
@@ -804,13 +831,13 @@ function renderReplyBar() {
   const m = S.replyTo && S.msgs.get(S.replyTo);
   if (!m) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  bar.innerHTML = `<div class="reply-inner"><b>Antwort an ${esc(isMine(m) ? 'dich' : nodeName(m.from))}</b><span>${esc(m.text)}</span></div><button class="icon-btn" id="reply-x" aria-label="Antwort abbrechen">${ICON.close}</button>`;
+  bar.innerHTML = `<div class="reply-inner"><b>${isMine(m) ? T('chat.replyToYou') : T('chat.replyTo', { name: esc(nodeName(m.from)) })}</b><span>${esc(m.text)}</span></div><button class="icon-btn" id="reply-x" aria-label="${esc(T('chat.replyCancel'))}">${ICON.close}</button>`;
   $('#reply-x').onclick = () => { S.replyTo = null; renderReplyBar(); };
 }
 
 // ------------------------------------------------------------------ Kontakte
 
-const TYPE = { 1: { label: 'Companion', icon: '👤' }, 2: { label: 'Repeater', icon: '📡' }, 3: { label: 'Room-Server', icon: '🏠' }, 4: { label: 'Sensor', icon: '🌡️' } };
+const TYPE = { 1: { label: T('type.companion'), icon: '👤' }, 2: { label: T('type.repeater'), icon: '📡' }, 3: { label: T('type.room'), icon: '🏠' }, 4: { label: T('type.sensor'), icon: '🌡️' } };
 const typeOf = (n) => TYPE[n?.type] || null;
 const canDm = (n) => !n?.type || n.type === 1; // Repeater/Rooms/Sensoren nehmen keine normalen DMs
 
@@ -821,13 +848,13 @@ function renderContacts() {
     app.innerHTML = `
       <div class="view view-contacts">
         <header class="bar">
-          <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-          <div class="search">${ICON.search}<input id="q" type="search" placeholder="Kontakte durchsuchen …" autocomplete="off"></div>
+          <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+          <div class="search">${ICON.search}<input id="q" type="search" placeholder="${esc(T('contacts.search'))}" autocomplete="off"></div>
         </header>
         <div class="segments" role="tablist">
-          <button class="seg" data-tab="fav" role="tab">${ICON.star} Favoriten <span id="cnt-fav"></span></button>
-          <button class="seg" data-tab="all" role="tab">Alle <span id="cnt-all"></span></button>
-          <button class="seg" data-tab="rpt" role="tab">📡 Repeater <span id="cnt-rpt"></span></button>
+          <button class="seg" data-tab="fav" role="tab">${ICON.star} ${T('contacts.favs')} <span id="cnt-fav"></span></button>
+          <button class="seg" data-tab="all" role="tab">${T('contacts.all')} <span id="cnt-all"></span></button>
+          <button class="seg" data-tab="rpt" role="tab">📡 ${T('contacts.rpt')} <span id="cnt-rpt"></span></button>
         </div>
         <main class="scroll" id="nodes"></main>
       </div>`;
@@ -856,7 +883,7 @@ function renderContactList() {
   let list = groups[S.contactTab] || all;
   if (q) list = list.filter((n) => `${n.long} ${n.short} ${n.id}`.toLowerCase().includes(q));
   list = S.contactTab === 'fav'
-    ? list.sort((a, b) => (a.long || a.short).localeCompare(b.long || b.short, 'de'))
+    ? list.sort((a, b) => (a.long || a.short).localeCompare(b.long || b.short, LOC))
     : list.sort((a, b) => (b.lastHeard || 0) - (a.lastHeard || 0));
   const total = list.length;
   list = list.slice(0, 400);
@@ -867,12 +894,12 @@ function renderContactList() {
       ${avatar('dm:' + n.id)}
       <div class="conv-body">
         <div class="conv-top"><span class="conv-title">${esc(n.long || n.short || n.id)}</span><span class="conv-time">${t ? `${t.icon}` : ''}</span></div>
-        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${t.label} · ` : ''}${esc(ago(n.lastHeard))}${n.hops != null ? ` · ${n.hops} Hops` : ''}</span></div>
+        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${t.label} · ` : ''}${esc(ago(n.lastHeard))}${n.hops != null ? ` · ${T('common.hops', { n: n.hops })}` : ''}</span></div>
       </div>
-      ${S.source?.protocol === 'meshcore' ? `<span class="fav-toggle ${n.fav ? 'on' : ''}" role="button" tabindex="0" data-fav="${esc(n.id)}" aria-label="${n.fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten'}">${n.fav ? '★' : '☆'}</span>` : n.fav ? '<span class="fav-toggle on">★</span>' : ''}
+      ${S.source?.protocol === 'meshcore' ? `<span class="fav-toggle ${n.fav ? 'on' : ''}" role="button" tabindex="0" data-fav="${esc(n.id)}" aria-label="${esc(n.fav ? T('contacts.unfav') : T('contacts.fav'))}">${n.fav ? '★' : '☆'}</span>` : n.fav ? '<span class="fav-toggle on">★</span>' : ''}
     </button>`;
-  }).join('') + (total > list.length ? `<div class="empty">${total - list.length} weitere – bitte suchen</div>` : '')
-    || `<div class="empty">${S.contactTab === 'fav' ? 'Keine Favoriten.<br>Tippe in „Alle“ auf ☆, um jemanden hinzuzufügen.' : 'Keine Kontakte gefunden'}</div>`;
+  }).join('') + (total > list.length ? `<div class="empty">${T('contacts.more', { n: total - list.length })}</div>` : '')
+    || `<div class="empty">${S.contactTab === 'fav' ? T('contacts.noFavs') : T('contacts.none')}</div>`;
 }
 
 // Favorit umschalten: sofort anzeigen, bei Fehler zurücknehmen. Gilt in MeshMonitor und auf dem Companion.
@@ -884,11 +911,11 @@ async function toggleFav(id) {
   scheduleRender();
   try {
     await api('/api/node/favorite', { method: 'POST', body: { id, fav } });
-    toast(fav ? `★ ${n.long || n.short || 'Node'} ist jetzt Favorit` : `${n.long || n.short || 'Node'} aus Favoriten entfernt`);
+    toast(T(fav ? 'fav.added' : 'fav.removed', { name: n.long || n.short || 'Node' }));
   } catch (e) {
     n.fav = !fav;
     scheduleRender();
-    toast(e.status === 403 ? 'Keine Berechtigung – der Token-Benutzer braucht „Nodes: schreiben“ (nodes:write)' : `Favorit nicht geändert: ${e.message}`);
+    toast(e.status === 403 ? T('fav.noPerm') : T('fav.failed', { msg: e.message }));
   }
 }
 
@@ -898,17 +925,17 @@ function openContact(id) {
   const t = typeOf(n);
   const row = (k, v) => (v == null || v === '' ? '' : `<div class="info-row"><span>${k}</span><b>${esc(v)}</b></div>`);
   openSheet(`
-    <div class="contact-head">${avatar('dm:' + n.id)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ' · ★ Favorit' : ''}</div></div></div>
+    <div class="contact-head">${avatar('dm:' + n.id)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}</div></div></div>
     <div class="info">
-      ${row('Zuletzt gehört', n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString('de-DE')})` : null)}
+      ${row(T('node.lastHeard'), n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString(LOC)})` : null)}
       ${row('Hops', n.hops)}
       ${row('SNR', n.snr)}
       ${row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
     </div>
-    ${canDm(n) ? '<button class="sheet-btn primary" data-act="dm">Nachricht senden</button>' : ''}
-    <button class="sheet-btn" data-act="details">${nodeKind(n) ? 'Status, Verlauf &amp; Traceroute' : 'Details &amp; Traceroute'}</button>
-    ${S.source?.protocol === 'meshcore' ? `<button class="sheet-btn" data-act="fav">${n.fav ? '★ Aus Favoriten entfernen' : '☆ Zu Favoriten hinzufügen'}</button>` : ''}
-    <button class="sheet-btn cancel" data-close>Schließen</button>`, (e) => {
+    ${canDm(n) ? `<button class="sheet-btn primary" data-act="dm">${T('contact.send')}</button>` : ''}
+    <button class="sheet-btn" data-act="details">${nodeKind(n) ? T('contact.detailsStatus') : T('contact.details')}</button>
+    ${S.source?.protocol === 'meshcore' ? `<button class="sheet-btn" data-act="fav">${n.fav ? T('contact.unfav') : T('contact.fav')}</button>` : ''}
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     if (e.target.closest('[data-act="fav"]')) { closeSheet(); toggleFav(n.id); }
     if (e.target.closest('[data-act="dm"]')) { closeSheet(); go('chat', `dm:${n.id}`, S.view === 'contacts'); }
     if (e.target.closest('[data-act="details"]')) { closeSheet(); go('node', n.id); }
@@ -918,11 +945,11 @@ function openContact(id) {
 // ------------------------------------------------------------------ Emoji-Auswahl (für PC; auf dem Handy hat die Tastatur Emojis)
 
 const EMOJI_SETS = [
-  ['Smileys', '😀 😃 😄 😁 😆 😅 😂 🤣 🙂 😉 😊 😇 🥰 😍 😘 😋 😜 🤪 😎 🤓 🥳 🤩 😏 😒 😔 😢 😭 😤 😠 😱 😳 🥺 🤔 🤫 🤭 🙄 😬 😴 🤯 🤠 😷 🤒 🥶 🥵 🤗 👀'],
-  ['Gesten', '👍 👎 👌 ✌️ 🤞 🤙 👋 🙏 👏 🙌 💪 🤝 ✋ 👊 🫡 🤷 🙋'],
-  ['Herzen', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 ❣️ 💯 ✨ 🔥 ⭐ 🎉 🎊'],
-  ['Funk & Unterwegs', '📡 📶 🔋 🪫 ⚡ 🛰️ 📻 📍 🗺️ 🧭 🏠 🚗 🚲 🥾 ⛰️ 🌲 ☀️ 🌧️ ⛈️ ❄️ 🌙'],
-  ['Sonstiges', '☕ 🍺 🍻 🍕 🎂 ✅ ❌ ⚠️ ❓ ❗ 🆘 🆗 🔧 🛠️ 💡 📷 ⏰ 🎵 🐶 🐱 🦆 🇩🇪'],
+  [T('emoji.smileys'), '😀 😃 😄 😁 😆 😅 😂 🤣 🙂 😉 😊 😇 🥰 😍 😘 😋 😜 🤪 😎 🤓 🥳 🤩 😏 😒 😔 😢 😭 😤 😠 😱 😳 🥺 🤔 🤫 🤭 🙄 😬 😴 🤯 🤠 😷 🤒 🥶 🥵 🤗 👀'],
+  [T('emoji.gestures'), '👍 👎 👌 ✌️ 🤞 🤙 👋 🙏 👏 🙌 💪 🤝 ✋ 👊 🫡 🤷 🙋'],
+  [T('emoji.hearts'), '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 ❣️ 💯 ✨ 🔥 ⭐ 🎉 🎊'],
+  [T('emoji.radio'), '📡 📶 🔋 🪫 ⚡ 🛰️ 📻 📍 🗺️ 🧭 🏠 🚗 🚲 🥾 ⛰️ 🌲 ☀️ 🌧️ ⛈️ ❄️ 🌙'],
+  [T('emoji.other'), '☕ 🍺 🍻 🍕 🎂 ✅ ❌ ⚠️ ❓ ❗ 🆘 🆗 🔧 🛠️ 💡 📷 ⏰ 🎵 🐶 🐱 🦆 🇩🇪'],
 ];
 function toggleEmojiPanel(force) {
   let panel = $('#emoji-panel');
@@ -932,7 +959,7 @@ function toggleEmojiPanel(force) {
   panel = document.createElement('div');
   panel.id = 'emoji-panel';
   panel.className = 'emoji-panel';
-  panel.innerHTML = [...(recent.length ? [['Zuletzt', recent.join(' ')]] : []), ...EMOJI_SETS]
+  panel.innerHTML = [...(recent.length ? [[T('emoji.recent'), recent.join(' ')]] : []), ...EMOJI_SETS]
     .map(([title, list]) => `<div class="ep-title">${esc(title)}</div><div class="ep-grid">${list.split(' ').filter(Boolean).map((e) => `<button type="button" data-ins="${esc(e)}">${esc(e)}</button>`).join('')}</div>`).join('');
   $('.composer-wrap').appendChild(panel);
   panel.onmousedown = (e) => e.preventDefault(); // Fokus/Cursor im Eingabefeld behalten
@@ -956,9 +983,9 @@ function toggleEmojiPanel(force) {
 }
 // Eigenen Standort (GPS des Geräts) als Text einfügen – der Nutzer sieht ihn vor dem Senden und kann ihn ändern
 function insertLocation() {
-  if (!('geolocation' in navigator)) { toast('Dieser Browser kann keinen Standort bestimmen'); return; }
-  if (!window.isSecureContext) { toast('Standort geht nur über HTTPS (öffne MeshLink Chat über deine HTTPS-Adresse)'); return; }
-  toast('Bestimme Standort …');
+  if (!('geolocation' in navigator)) { toast(T('loc.unsupported')); return; }
+  if (!window.isSecureContext) { toast(T('loc.https')); return; }
+  toast(T('loc.locating'));
   navigator.geolocation.getCurrentPosition((pos) => {
     const { latitude, longitude, accuracy } = pos.coords;
     const txt = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
@@ -967,9 +994,9 @@ function insertLocation() {
     const sep = ta.value && !/\s$/.test(ta.value) ? ' ' : '';
     ta.selectionStart = ta.selectionEnd = ta.value.length;
     insertAtCursor(ta, sep + txt);
-    toast(`Standort eingefügt (Genauigkeit ±${Math.round(accuracy)} m) – prüfen und senden`);
+    toast(T('loc.inserted', { m: Math.round(accuracy) }));
   }, (err) => {
-    toast(err.code === 1 ? 'Standort nicht erlaubt – in den Browser-Einstellungen freigeben' : err.code === 3 ? 'Standort: Zeitüberschreitung – draußen nochmal versuchen' : 'Standort nicht verfügbar');
+    toast(err.code === 1 ? T('loc.denied') : err.code === 3 ? T('loc.timeout') : T('loc.unavailable'));
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
 
@@ -990,10 +1017,10 @@ function renderRooms() {
     app.innerHTML = `
       <div class="view view-rooms">
         <header class="bar">
-          <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-          <div class="bar-title"><h2>Room-Server</h2><div class="sub">Schwarze Bretter im Mesh</div></div>
+          <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+          <div class="bar-title"><h2>${T('rooms.title')}</h2><div class="sub">${T('rooms.sub')}</div></div>
         </header>
-        <main class="scroll" id="rooms"><div class="empty">Lade …</div></main>
+        <main class="scroll" id="rooms"><div class="empty">${T('common.loading')}</div></main>
       </div>`;
     $('#back').onclick = () => history.back();
     $('#rooms').onclick = (e) => { const it = e.target.closest('[data-room]'); if (it) go('room', it.dataset.room); };
@@ -1004,9 +1031,9 @@ function renderRooms() {
           ${avatar('dm:' + x.id)}
           <div class="conv-body">
             <div class="conv-top"><span class="conv-title">🏠 ${esc(x.name)}</span><span class="conv-time">${x.loggedIn ? '🔓' : '🔒'}</span></div>
-            <div class="conv-bottom"><span class="conv-preview muted">${x.loggedIn ? 'angemeldet' : 'nicht angemeldet'} · zuletzt gehört ${esc(ago(x.lastSeen))}</span></div>
+            <div class="conv-bottom"><span class="conv-preview muted">${x.loggedIn ? T('rooms.in') : T('rooms.out')} · ${T('chat.lastHeard', { ago: esc(ago(x.lastSeen)) })}</span></div>
           </div>
-        </button>`).join('') || '<div class="empty">Dein Companion kennt keine Room-Server.</div>';
+        </button>`).join('') || `<div class="empty">${T('rooms.none')}</div>`;
     }).catch((e) => { if (S.view === 'rooms') $('#rooms').innerHTML = `<div class="empty">${esc(permHint(e, 'messages:read'))}</div>`; });
   }
 }
@@ -1020,9 +1047,9 @@ function renderRoom() {
   app.innerHTML = `
     <div class="view view-chat view-room">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         ${avatar('dm:' + id, 'small')}
-        <div class="bar-title"><h2>🏠 ${esc(n?.long || n?.short || 'Room-Server')}</h2><div class="sub" id="room-sub">Lade …</div></div>
+        <div class="bar-title"><h2>🏠 ${esc(n?.long || n?.short || T('type.room'))}</h2><div class="sub" id="room-sub">${T('common.loading')}</div></div>
       </header>
       <main class="scroll msgs" id="room-posts"></main>
       <footer class="composer-wrap" id="room-foot"></footer>
@@ -1055,36 +1082,36 @@ function drawRoom(first) {
   const el = $('#room-posts');
   if (!el) return;
   const stick = first || nearBottom(el);
-  $('#room-sub').textContent = rm.loggedIn ? '🔓 angemeldet' : '🔒 nicht angemeldet – gespeicherte Beiträge, nur lesen';
+  $('#room-sub').textContent = rm.loggedIn ? T('rooms.subIn') : T('rooms.subOut');
   el.innerHTML = (rm.posts || []).map((p) => `
     <div class="row ${p.mine ? 'mine' : 'theirs'}"><div class="bubble-col"><div class="bubble">
       ${!p.mine && p.name ? `<div class="sender" style="--h:${hue(p.name)}">${esc(p.name)}</div>` : ''}
       <div class="text">${renderText(p.text)}</div><div class="meta">${hm(p.ts)}</div>
-    </div></div></div>`).join('') || `<div class="empty chat-empty">${esc(rm.err || 'Noch keine Beiträge.')}</div>`;
+    </div></div></div>`).join('') || `<div class="empty chat-empty">${esc(rm.err || T('rooms.noPosts'))}</div>`;
   if (stick) el.scrollTop = el.scrollHeight;
   const foot = $('#room-foot');
   if (rm.loggedIn) {
     if (!$('#room-form')) {
-      foot.innerHTML = `<form class="composer" id="room-form"><textarea id="room-in" rows="1" placeholder="Beitrag schreiben" enterkeyhint="send"></textarea><button class="send" type="submit" aria-label="Senden">${ICON.send}</button></form>`;
+      foot.innerHTML = `<form class="composer" id="room-form"><textarea id="room-in" rows="1" placeholder="${esc(T('rooms.placeholder'))}" enterkeyhint="send"></textarea><button class="send" type="submit" aria-label="${esc(T('common.send'))}">${ICON.send}</button></form>`;
       $('#room-form').onsubmit = async (e) => {
         e.preventDefault();
         const t = $('#room-in').value.trim();
         if (!t) return;
-        if (enc.encode(t).length > 140) { toast('Zu lang (max. 140 Bytes)'); return; }
-        try { await api('/api/rooms/post', { method: 'POST', body: { id: rm.id, text: t } }); $('#room-in').value = ''; toast('Beitrag gesendet'); setTimeout(() => loadRoom(false), 2500); } catch (err) { toast(permHint(err, 'messages:write')); }
+        if (enc.encode(t).length > 140) { toast(T('rooms.tooLong', { n: 140 })); return; }
+        try { await api('/api/rooms/post', { method: 'POST', body: { id: rm.id, text: t } }); $('#room-in').value = ''; toast(T('rooms.posted')); setTimeout(() => loadRoom(false), 2500); } catch (err) { toast(permHint(err, 'messages:write')); }
       };
       $('#room-in').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#room-form').requestSubmit(); } };
     }
   } else if (!$('#room-login')) {
     foot.innerHTML = `
       <form class="room-login" id="room-login">
-        <input id="room-pw" type="password" placeholder="Passwort (leer = Gast)" autocomplete="off">
-        <label class="room-remember"><input type="checkbox" id="room-rem"> Passwort in MeshMonitor merken</label>
-        <div class="node-actions"><button class="pill primary-pill" type="submit">Anmelden</button><button class="pill" type="button" id="room-saved">Gespeichertes Passwort</button></div>
+        <input id="room-pw" type="password" placeholder="${esc(T('rooms.pw'))}" autocomplete="off">
+        <label class="room-remember"><input type="checkbox" id="room-rem"> ${T('rooms.remember')}</label>
+        <div class="node-actions"><button class="pill primary-pill" type="submit">${T('rooms.login')}</button><button class="pill" type="button" id="room-saved">${T('rooms.saved')}</button></div>
       </form>`;
     const login = async (body) => {
-      $('#room-sub').textContent = 'Melde an … (bis 60 s)';
-      try { await api('/api/rooms/login', { method: 'POST', body: { id: rm.id, ...body } }); toast('Angemeldet ✔'); foot.innerHTML = ''; await loadRoom(true); } catch (err) { toast(err.status === 422 ? 'Anmeldung abgelehnt – Passwort prüfen' : permHint(err, 'messages:write')); drawRoom(false); }
+      $('#room-sub').textContent = T('rooms.loggingIn');
+      try { await api('/api/rooms/login', { method: 'POST', body: { id: rm.id, ...body } }); toast(T('rooms.loggedIn')); foot.innerHTML = ''; await loadRoom(true); } catch (err) { toast(err.status === 422 ? T('rooms.rejected') : permHint(err, 'messages:write')); drawRoom(false); }
     };
     $('#room-login').onsubmit = (e) => { e.preventDefault(); login({ password: $('#room-pw').value, remember: $('#room-rem').checked }); };
     $('#room-saved').onclick = () => login({ saved: true });
@@ -1099,10 +1126,10 @@ function renderSearch() {
     app.innerHTML = `
       <div class="view view-search">
         <header class="bar">
-          <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-          <div class="search">${ICON.search}<input id="sq" type="search" placeholder="Nachrichten durchsuchen …" autocomplete="off"></div>
+          <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+          <div class="search">${ICON.search}<input id="sq" type="search" placeholder="${esc(T('search.ph'))}" autocomplete="off"></div>
         </header>
-        <main class="scroll" id="results"><div class="empty">Text oder Name eingeben</div></main>
+        <main class="scroll" id="results"><div class="empty">${T('search.prompt')}</div></main>
       </div>`;
     $('#back').onclick = () => history.back();
     $('#sq').oninput = drawSearch;
@@ -1118,7 +1145,7 @@ function renderSearch() {
 function drawSearch() {
   const q = $('#sq').value.trim().toLowerCase();
   const el = $('#results');
-  if (q.length < 2) { el.innerHTML = '<div class="empty">Mindestens 2 Zeichen</div>'; return; }
+  if (q.length < 2) { el.innerHTML = `<div class="empty">${T('search.min', { n: 2 })}</div>`; return; }
   const hits = [...S.msgs.values()].filter((m) => !m.reaction && !m.id.startsWith('tmp-') && (m.text.toLowerCase().includes(q) || nodeName(m.from).toLowerCase().includes(q)))
     .sort((a, b) => b.ts - a.ts);
   const mark = (t) => { const i = t.toLowerCase().indexOf(q); return i < 0 ? esc(t) : `${esc(t.slice(0, i))}<mark>${esc(t.slice(i, i + q.length))}</mark>${esc(t.slice(i + q.length))}`; };
@@ -1127,29 +1154,32 @@ function drawSearch() {
       ${avatar(convOf(m))}
       <div class="conv-body">
         <div class="conv-top"><span class="conv-title">${esc(convTitle(convOf(m)))}</span><span class="conv-time">${esc(dayLabel(m.ts))} ${hm(m.ts)}</span></div>
-        <div class="conv-bottom"><span class="conv-preview"><b>${esc(isMine(m) ? 'Du' : nodeName(m.from))}:</b> ${mark(m.text)}</span></div>
+        <div class="conv-bottom"><span class="conv-preview"><b>${esc(isMine(m) ? T('common.you') : nodeName(m.from))}:</b> ${mark(m.text)}</span></div>
       </div>
-    </button>`).join('') + (hits.length > 200 ? `<div class="empty">${hits.length - 200} weitere – genauer suchen</div>` : '')
-    || '<div class="empty">Nichts gefunden (durchsucht werden die geladenen Nachrichten)</div>';
+    </button>`).join('') + (hits.length > 200 ? `<div class="empty">${T('search.more', { n: hits.length - 200 })}</div>` : '')
+    || `<div class="empty">${T('search.none')}</div>`;
 }
 
 // ------------------------------------------------------------------ Statistik (Tag, Tage, Monat)
 
-const PACKET_LABELS = { ADVERT: 'Adverts', GRP_TXT: 'Kanalnachrichten', TXT_MSG: 'Direktnachrichten', ACK: 'Bestätigungen', PATH: 'Pfad-Rückmeldungen', REQ: 'Anfragen', RESPONSE: 'Antworten', ANON_REQ: 'Anmeldungen', TRACE: 'Traceroutes', GRP_DATA: 'Kanal-Daten', MULTIPART: 'Mehrteilig', CONTROL: 'Steuerung', RAW_CUSTOM: 'Eigene Daten' };
-const nf = (v, d = 0) => Number(v).toLocaleString('de-DE', { maximumFractionDigits: d, minimumFractionDigits: d });
+const PACKET_LABELS = {
+  ADVERT: T('pkt.advert'), GRP_TXT: T('pkt.grpTxt'), TXT_MSG: T('pkt.txtMsg'), ACK: T('pkt.ack'), PATH: T('pkt.path'), REQ: T('pkt.req'), RESPONSE: T('pkt.response'),
+  ANON_REQ: T('pkt.anonReq'), TRACE: T('pkt.trace'), GRP_DATA: T('pkt.grpData'), MULTIPART: T('pkt.multipart'), CONTROL: T('pkt.control'), RAW_CUSTOM: T('pkt.rawCustom'),
+};
+const nf = (v, d = 0) => Number(v).toLocaleString(LOC, { maximumFractionDigits: d, minimumFractionDigits: d });
 const fmtBytes = (b) => (b >= 1048576 ? `${nf(b / 1048576, 1)} MB` : b >= 1024 ? `${nf(b / 1024, 1)} kB` : `${nf(b)} B`);
 
 // Zeitraum der Statistik: heute, gestern, letzte 7 Tage (Grenzen in der Zeitzone des Geräts).
 // Bewusst nicht länger: In belebten Netzen wären das zehntausende Nachrichten – zu viel Last für kleine Geräte.
-const STAT_RANGES = [['today', 'Heute'], ['yesterday', 'Gestern'], ['7', '7 Tage']];
+const STAT_RANGES = [['today', T('common.today')], ['yesterday', T('common.yesterday')], ['7', T('stats.days7')]];
 const dayStart = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 function statRange(sel) {
   const today = dayStart(new Date());
   let from; let to; let days = 1; let label;
-  if (sel === 'today') { from = today; to = new Date(); label = 'Heute seit Mitternacht'; }
-  else if (sel === 'yesterday') { from = addDays(today, -1); to = today; label = `Gestern, ${from.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}`; }
-  else { days = 7; from = addDays(today, -6); to = new Date(); label = `Letzte 7 Tage (seit ${from.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })})`; }
+  if (sel === 'today') { from = today; to = new Date(); label = T('stats.todayLabel'); }
+  else if (sel === 'yesterday') { from = addDays(today, -1); to = today; label = T('stats.yesterdayLabel', { date: from.toLocaleDateString(LOC, { weekday: 'short', day: '2-digit', month: '2-digit' }) }); }
+  else { days = 7; from = addDays(today, -6); to = new Date(); label = T('stats.weekLabel', { date: from.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' }) }); }
   // Balken: Stunden bei einem Tag, sonst Tage (jeweils echte lokale Grenzen, auch bei Zeitumstellung)
   const starts = [];
   if (days === 1) { for (let h = 0; h < 24; h++) { const t = new Date(from); t.setHours(h, 0, 0, 0); if (t < to) starts.push(t.getTime()); } }
@@ -1164,10 +1194,10 @@ function renderStats() {
   app.innerHTML = `
     <div class="view view-stats">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-        <div class="bar-title"><h2>Statistik</h2><div class="sub" id="stats-sub"></div></div>
-        <button class="bar-pill" id="stats-pdf" title="Statistik als PDF speichern oder drucken">⤓ PDF</button>
-        <button class="icon-btn" id="stats-refresh" aria-label="Aktualisieren">${ICON.refresh}</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+        <div class="bar-title"><h2>${T('stats.title')}</h2><div class="sub" id="stats-sub"></div></div>
+        <button class="bar-pill" id="stats-pdf" title="${esc(T('stats.pdfTitle'))}">⤓ PDF</button>
+        <button class="icon-btn" id="stats-refresh" aria-label="${esc(T('common.refresh'))}">${ICON.refresh}</button>
       </header>
       <div class="segments" id="stats-range">
         ${STAT_RANGES.map(([k, l]) => `<button class="seg" data-range="${k}">${l}</button>`).join('')}
@@ -1188,7 +1218,7 @@ function setStatRange(sel) {
   S.statSel = sel;
   document.querySelectorAll('#stats-range [data-range]').forEach((b) => b.classList.toggle('active', b.dataset.range === sel));
   S.stats = null;
-  $('#stats-body').innerHTML = `<div class="empty">Zähle Nachrichten und Pakete …${sel === '7' ? '<br><small>Beim ersten Mal kann das etwas dauern.</small>' : ''}</div>`;
+  $('#stats-body').innerHTML = `<div class="empty">${T('stats.counting')}${sel === '7' ? `<br><small>${T('stats.firstSlow')}</small>` : ''}</div>`;
   loadStats(true);
 }
 
@@ -1197,7 +1227,7 @@ async function loadStats(showBusy) {
   const r = statRange(S.statSel);
   S.statRange = r;
   const seq = ++statsSeq;
-  if (showBusy && $('#stats-sub')) $('#stats-sub').textContent = `${r.label} · lade …`;
+  if (showBusy && $('#stats-sub')) $('#stats-sub').textContent = `${r.label} · ${T('stats.loadingShort')}`;
   try {
     const st = await api(`/api/stats?from=${r.from}&to=${r.to}&b=${r.starts.join(',')}`);
     if (S.view !== 'stats' || seq !== statsSeq) return;
@@ -1205,16 +1235,16 @@ async function loadStats(showBusy) {
     drawStats();
   } catch (e) {
     if (S.view !== 'stats' || seq !== statsSeq) return;
-    $('#stats-sub').textContent = `${r.label} · Fehler`;
+    $('#stats-sub').textContent = `${r.label} · ${T('stats.error')}`;
     if (!S.stats) $('#stats-body').innerHTML = `<div class="empty">${esc(permHint(e, 'messages:read'))}</div>`;
-    else toast(`Statistik nicht aktualisiert: ${e.message}`);
+    else toast(T('stats.notUpdated', { msg: e.message }));
   }
 }
 
 // Bezeichnung eines Balkens (Stunde bzw. Tag)
 const bucketLabel = (t, unit) => (unit === 'hour'
-  ? `${pad(new Date(t).getHours())}–${pad((new Date(t).getHours() + 1) % 24 || 24)} Uhr`
-  : new Date(t).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }));
+  ? T('stats.hourRange', { from: pad(new Date(t).getHours()), to: pad((new Date(t).getHours() + 1) % 24 || 24) })
+  : new Date(t).toLocaleDateString(LOC, { weekday: 'short', day: '2-digit', month: '2-digit' }));
 
 // Balken je Stunde bzw. Tag. Antippen/Überfahren zeigt den Wert in der Kopfzeile.
 function bucketBars(values, starts, unit, noun) {
@@ -1228,12 +1258,12 @@ function bucketBars(values, starts, unit, noun) {
     return `<div class="hbar ${cls}" data-tip="${esc(tip)}" title="${esc(tip)} ${esc(noun)}"><i style="height:${v ? Math.max(4, (v / max) * 100) : 0}%"></i></div>`;
   }).join('');
   let axis;
-  if (unit === 'hour') axis = '<span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span>';
+  if (unit === 'hour') axis = `<span>0</span><span>6</span><span>12</span><span>18</span><span>${T('stats.axisEnd')}</span>`;
   else {
-    const d = (i) => new Date(starts[i]).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    const d = (i) => new Date(starts[i]).toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' });
     axis = `<span>${d(0)}</span>${n > 6 ? `<span>${d(Math.floor((n - 1) / 2))}</span>` : ''}<span>${d(n - 1)}</span>`;
   }
-  return `<div class="hbars ${n > 20 ? 'dense' : ''}" role="img" aria-label="${esc(noun)} je ${unit === 'hour' ? 'Stunde' : 'Tag'}">${bars}</div><div class="hbars-axis">${axis}</div>`;
+  return `<div class="hbars ${n > 20 ? 'dense' : ''}" role="img" aria-label="${esc(T(unit === 'hour' ? 'stats.perHourAria' : 'stats.perDayAria', { noun }))}">${bars}</div><div class="hbars-axis">${axis}</div>`;
 }
 // Rangliste mit Balken (Länge = Anteil am größten Wert)
 function rankList(rows, empty) {
@@ -1252,131 +1282,133 @@ function drawStats() {
   const R = S.statRange;
   if (!st || !el || !R) return;
   const m = st.msgs; const p = st.packets && !st.packets.error ? st.packets : null;
+  for (const c of m.channels) c.name = c.name || channelName(c.index); // Kanal ohne Namen: „Primär“/„Kanal n“ in der App-Sprache
   const unit = R.unit; const multi = unit === 'day';
-  $('#stats-sub').textContent = `${R.label} · Stand ${hm(st.generated)}`;
+  $('#stats-sub').textContent = `${R.label} · ${T('stats.asOf', { time: hm(st.generated) })}`;
   const tile = (label, value, sub = '') => `<div class="tile"><small>${esc(label)}</small><b>${value}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>`;
-  const mapBtn = (i) => `<button class="pill" data-stat-map="${i}">Karte</button>`;
+  const mapBtn = (i) => `<button class="pill" data-stat-map="${i}">${T('stats.map')}</button>`;
   S.statFocus = [];
   const focus = (f) => S.statFocus.push(f) - 1;
   const rec = (icon, title, main, sub, btn = '') => `<div class="record"><span class="record-icon">${icon}</span><div class="record-main"><small>${esc(title)}</small><b>${esc(main)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>${btn}</div>`;
-  const hopsTxt = (h) => (h == null ? '' : h === 0 ? ' · direkt' : ` · ${h} Hop${h === 1 ? '' : 's'}`);
-  const msgN = (n) => `${nf(n)} Nachricht${n === 1 ? '' : 'en'}`;
+  const hopsTxt = (h) => (h == null ? '' : ` · ${h === 0 ? T('common.direct') : T('common.hops', { n: h })}`);
+  const msgN = (n) => T('stats.msgs', { n, num: nf(n) });
+  const you = T('common.you');
   const days = st.starts.length;
   const daysSoFar = multi ? Math.max(1, st.starts.filter((t) => t <= st.generated).length) : 1;
 
   // Paket-Log: deckt es den Zeitraum ab?
   const cov = p?.coverageFrom ?? null;
   const covGone = cov && cov >= st.to; // für diesen Zeitraum gar keine Pakete mehr
-  const covText = cov ? new Date(cov).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  const covText = cov ? new Date(cov).toLocaleString(LOC, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
   const pk = p && !covGone ? p : null;
 
   const records = [];
-  if (m.channels[0]) records.push(rec('🏆', 'Aktivster Kanal', m.channels[0].name, `${msgN(m.channels[0].n)}${m.channel ? ` · ${nf((m.channels[0].n / m.channel) * 100)} % aller Kanalnachrichten` : ''}`));
-  if (m.topSenders[0]) records.push(rec('💬', 'Aktivster Absender', m.topSenders[0].name, msgN(m.topSenders[0].n)));
-  m.farthest.forEach((f, i) => records.push(rec(i ? '📍' : '🛰️', i ? `Platz ${i + 1} nach Entfernung` : 'Weitester Absender', f.name, `${fmtKm(f.km)} Luftlinie${hopsTxt(f.hops)}`,
-    mapBtn(focus({ title: `${f.name} → Du`, numberFrom: 0, points: [{ id: f.id, label: f.name, tag: '✉' }, { me: true, label: 'Du' }] })))));
-  if (m.longest) records.push(rec('🪜', 'Längster Weg einer Nachricht', `${m.longest.hops} Hops von ${m.longest.name}`, `${multi ? `${bucketLabel(m.longest.ts, 'day')} · ` : ''}${m.longest.path.join(' › ')}`, mapBtn(focus({ title: `Weg von ${m.longest.name}`, numberFrom: 0, points: m.longest.points }))));
-  if (pk?.farDirect) records.push(rec('📡', 'Weitester Direktempfang (ohne Repeater)', pk.farDirect.name, `${fmtKm(pk.farDirect.km)} Luftlinie${pk.farDirect.snr != null ? ` · SNR ${nf(pk.farDirect.snr, 1)} dB` : ''} · ${PACKET_LABELS[pk.farDirect.type] || pk.farDirect.type}`,
-    mapBtn(focus({ title: `${pk.farDirect.name} → Du (direkt)`, numberFrom: 0, points: [{ id: pk.farDirect.id, label: pk.farDirect.name, tag: '📡' }, { me: true, label: 'Du' }] }))));
-  if (pk?.maxHops?.hops) records.push(rec('🔁', 'Paket mit den meisten Hops', `${pk.maxHops.hops} Hops`, `${PACKET_LABELS[pk.maxHops.type] || pk.maxHops.type} · ${pk.maxHops.path.join(' › ')}`, mapBtn(focus({ title: `Paket über ${pk.maxHops.hops} Hops`, numberFrom: 1, points: pk.maxHops.points }))));
-  if (m.busiest) records.push(rec('⏰', multi ? 'Stärkster Tag' : 'Stärkste Stunde', bucketLabel(m.busiest.start, unit), msgN(m.busiest.n)));
-  if (m.longText) records.push(rec('📝', 'Längste Nachricht', m.longText.name, `${nf(m.longText.bytes)} Bytes`));
+  if (m.channels[0]) records.push(rec('🏆', T('stats.topChannel'), m.channels[0].name, `${msgN(m.channels[0].n)}${m.channel ? ` · ${T('stats.pctOfChannel', { pct: nf((m.channels[0].n / m.channel) * 100) })}` : ''}`));
+  if (m.topSenders[0]) records.push(rec('💬', T('stats.topSender'), m.topSenders[0].name, msgN(m.topSenders[0].n)));
+  m.farthest.forEach((f, i) => records.push(rec(i ? '📍' : '🛰️', i ? T('stats.rankDist', { i: i + 1 }) : T('stats.farthest'), f.name, `${T('stats.airline', { km: fmtKm(f.km) })}${hopsTxt(f.hops)}`,
+    mapBtn(focus({ title: `${f.name} → ${you}`, numberFrom: 0, points: [{ id: f.id, label: f.name, tag: '✉' }, { me: true, label: you }] })))));
+  if (m.longest) records.push(rec('🪜', T('stats.longest'), T('stats.hopsFrom', { n: m.longest.hops, name: m.longest.name }), `${multi ? `${bucketLabel(m.longest.ts, 'day')} · ` : ''}${m.longest.path.join(' › ')}`, mapBtn(focus({ title: T('map.pathFrom', { name: m.longest.name }), numberFrom: 0, points: m.longest.points }))));
+  if (pk?.farDirect) records.push(rec('📡', T('stats.farDirect'), pk.farDirect.name, `${T('stats.airline', { km: fmtKm(pk.farDirect.km) })}${pk.farDirect.snr != null ? ` · SNR ${nf(pk.farDirect.snr, 1)} dB` : ''} · ${PACKET_LABELS[pk.farDirect.type] || pk.farDirect.type}`,
+    mapBtn(focus({ title: T('stats.toYouDirect', { name: pk.farDirect.name }), numberFrom: 0, points: [{ id: pk.farDirect.id, label: pk.farDirect.name, tag: '📡' }, { me: true, label: you }] }))));
+  if (pk?.maxHops?.hops) records.push(rec('🔁', T('stats.maxHops'), T('common.hops', { n: pk.maxHops.hops }), `${PACKET_LABELS[pk.maxHops.type] || pk.maxHops.type} · ${pk.maxHops.path.join(' › ')}`, mapBtn(focus({ title: T('stats.packetOver', { n: pk.maxHops.hops }), numberFrom: 1, points: pk.maxHops.points }))));
+  if (m.busiest) records.push(rec('⏰', multi ? T('stats.busiestDay') : T('stats.busiestHour'), bucketLabel(m.busiest.start, unit), msgN(m.busiest.n)));
+  if (m.longText) records.push(rec('📝', T('stats.longText'), m.longText.name, T('stats.bytes', { n: m.longText.bytes, num: nf(m.longText.bytes) })));
 
-  const types = { 1: 'Companions', 2: 'Repeater', 3: 'Room-Server', 4: 'Sensoren', 0: 'Sonstige' };
-  const hopHist = pk ? pk.hopHist.map((n, h) => ({ label: h === 0 ? 'direkt (0 Hops)' : h === 8 ? '8 und mehr Hops' : `${h} Hop${h === 1 ? '' : 's'}`, n })).filter((r) => r.n) : [];
+  const types = { 1: T('stats.typeCompanions'), 2: T('stats.typeRepeaters'), 3: T('stats.typeRooms'), 4: T('stats.typeSensors'), 0: T('stats.typeOther') };
+  const hopHist = pk ? pk.hopHist.map((n, h) => ({ label: h === 0 ? T('stats.hop0') : h === 8 ? T('stats.hop8') : T('common.hops', { n: h }), n })).filter((r) => r.n) : [];
   const warn = [
-    m.truncated ? 'Sehr viele Nachrichten – die ältesten in diesem Zeitraum konnten nicht mehr gezählt werden.' : '',
-    m.skipped?.length ? `Nicht mitgezählt (kein Leserecht): ${m.skipped.join(', ')}` : '',
-    pk?.truncated ? 'Sehr viele Pakete – gezählt wurden die neuesten 100.000.' : '',
+    m.truncated ? T('stats.warnTrunc') : '',
+    m.skipped?.length ? T('stats.warnSkipped', { list: m.skipped.join(', ') }) : '',
+    pk?.truncated ? T('stats.warnPkTrunc', { n: nf(100000) }) : '',
   ].filter(Boolean);
   const covNote = p && cov ? `<div class="note">${covGone
-    ? `📦 Für diesen Zeitraum hat MeshMonitor keine Pakete mehr – das Paket-Log reicht nur bis ${esc(covText)} zurück.`
-    : `📦 Paket-Zahlen erst ab ${esc(covText)} – weiter reicht das Paket-Log von MeshMonitor nicht zurück.`}
-    <small>Einstellbar in MeshMonitor (Paket-Log: max. Alter und Anzahl; Standard 24 h / 1000 Pakete).</small></div>` : '';
+    ? T('stats.covGone', { date: esc(covText) })
+    : T('stats.covFrom', { date: esc(covText) })}
+    <small>${T('stats.covSetting')}</small></div>` : '';
 
   const gen = new Date(st.generated);
   el.innerHTML = `
     <div class="print-head">
-      <div><b>MeshLink Chat · Statistik</b><span>${esc(R.label)}</span></div>
-      <small>${esc(S.source?.name || '')}${S.source?.name ? ' · ' : ''}Stand ${esc(gen.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }))}, ${esc(hm(st.generated))} Uhr</small>
+      <div><b>MeshLink Chat · ${T('stats.title')}</b><span>${esc(R.label)}</span></div>
+      <small>${esc(S.source?.name || '')}${S.source?.name ? ' · ' : ''}${T('stats.asOfFull', { date: esc(gen.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit', year: 'numeric' })), time: esc(hm(st.generated)) })}</small>
     </div>
     <section class="tiles">
-      ${tile('Nachrichten', nf(m.total), multi ? `Ø ${nf(m.total / daysSoFar, 1)} pro Tag · ${nf(m.mine)} gesendet` : `${nf(m.received)} empfangen · ${nf(m.mine)} gesendet`)}
-      ${pk ? tile('Pakete gehört', nf(pk.total), multi && !cov ? `Ø ${nf(pk.total / daysSoFar)} pro Tag · ${fmtBytes(pk.bytes)}` : `${fmtBytes(pk.bytes)} Nutzdaten${cov ? ' (Teilzeitraum)' : ''}`) : tile('Direktnachrichten', nf(m.dm), `${nf(m.channel)} in Kanälen`)}
-      ${tile('Aktive Absender', nf(m.senders), multi ? `in ${days} Tagen` : 'haben geschrieben')}
-      ${st.nodes ? tile('Nodes gehört', nf(st.nodes.heard), `von ${nf(st.nodes.known)} bekannten`) : tile('Erwähnungen', nf(m.mentions), 'von dir')}
+      ${tile(T('stats.tileMsgs'), nf(m.total), multi ? T('stats.avgDaySent', { avg: nf(m.total / daysSoFar, 1), sent: nf(m.mine) }) : T('stats.recvSent', { recv: nf(m.received), sent: nf(m.mine) }))}
+      ${pk ? tile(T('stats.tilePk'), nf(pk.total), multi && !cov ? T('stats.avgDayBytes', { avg: nf(pk.total / daysSoFar), bytes: fmtBytes(pk.bytes) }) : `${T('stats.payload', { bytes: fmtBytes(pk.bytes) })}${cov ? ` ${T('stats.partial')}` : ''}`) : tile(T('list.dms'), nf(m.dm), T('stats.inChannels', { n: nf(m.channel) }))}
+      ${tile(T('stats.tileSenders'), nf(m.senders), multi ? T('stats.inDays', { n: days }) : T('stats.wrote'))}
+      ${st.nodes ? tile(T('stats.tileNodes'), nf(st.nodes.heard), T('stats.ofKnown', { n: nf(st.nodes.known) })) : tile(T('stats.tileMentions'), nf(m.mentions), T('stats.ofYou'))}
     </section>
     ${warn.map((w) => `<div class="banner">${esc(w)}</div>`).join('')}
     <section class="card">
-      <div class="card-head"><b>Nachrichten pro ${multi ? 'Tag' : 'Stunde'}</b><small class="chart-tip" data-default="${nf(m.total)} gesamt">${nf(m.total)} gesamt</small></div>
-      ${bucketBars(m.perBucket, st.starts, unit, 'Nachrichten')}
+      <div class="card-head"><b>${multi ? T('stats.msgsPerDay') : T('stats.msgsPerHour')}</b><small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(m.total) }))}">${T('stats.total', { n: nf(m.total) })}</small></div>
+      ${bucketBars(m.perBucket, st.starts, unit, T('stats.nounMsgs'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Rekorde</b></div>
-      ${records.join('') || '<div class="muted">In diesem Zeitraum war nichts los.</div>'}
-      ${!m.hasMyPos ? '<div class="hint">Für Entfernungen braucht dein eigener Node eine Position in MeshMonitor.</div>' : ''}
+      <div class="card-head"><b>${T('stats.records')}</b></div>
+      ${records.join('') || `<div class="muted">${T('stats.quiet')}</div>`}
+      ${!m.hasMyPos ? `<div class="hint">${T('stats.needPos')}</div>` : ''}
     </section>
     <section class="card">
-      <div class="card-head"><b>Kanäle</b><small>${nf(m.channel)} Nachrichten</small></div>
-      ${rankList(m.channels.map((c) => ({ label: c.name, n: c.n })), 'Keine Kanalnachrichten in diesem Zeitraum.')}
+      <div class="card-head"><b>${T('list.channels')}</b><small>${T('stats.nMsgs', { n: nf(m.channel) })}</small></div>
+      ${rankList(m.channels.map((c) => ({ label: c.name, n: c.n })), T('stats.noChMsgs'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Top-Absender</b><small>${nf(m.senders)} aktiv</small></div>
-      ${rankList(m.topSenders.map((x) => ({ label: x.name, n: x.n })), 'In diesem Zeitraum hat niemand geschrieben.')}
+      <div class="card-head"><b>${T('stats.topSenders')}</b><small>${T('stats.active', { n: nf(m.senders) })}</small></div>
+      ${rankList(m.topSenders.map((x) => ({ label: x.name, n: x.n })), T('stats.nobody'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Nachrichten im Detail</b></div>
+      <div class="card-head"><b>${T('stats.detail')}</b></div>
       <div class="stat-grid">
-        <div><small>In Kanälen</small><b>${nf(m.channel)}</b></div>
-        <div><small>Direktnachrichten</small><b>${nf(m.dm)}</b></div>
-        <div><small>Erwähnungen von dir</small><b>${nf(m.mentions)}</b></div>
-        ${m.reactions != null ? `<div><small>Reaktionen</small><b>${nf(m.reactions)}</b></div>` : ''}
-        ${m.hops ? `<div><small>Ø Hops bis zu dir</small><b>${nf(m.hops.avg, 1)}</b></div><div><small>Direkt empfangen</small><b>${nf((m.hops.direct / m.hops.n) * 100)} %</b></div>` : ''}
-        ${m.hashBytes.map((h) => `<div><small>${h.bytes}-Byte-Kennungen</small><b>${nf(h.n)}</b></div>`).join('')}
+        <div><small>${T('stats.inCh')}</small><b>${nf(m.channel)}</b></div>
+        <div><small>${T('list.dms')}</small><b>${nf(m.dm)}</b></div>
+        <div><small>${T('stats.mentionsOfYou')}</small><b>${nf(m.mentions)}</b></div>
+        ${m.reactions != null ? `<div><small>${T('stats.reactions')}</small><b>${nf(m.reactions)}</b></div>` : ''}
+        ${m.hops ? `<div><small>${T('stats.avgHops')}</small><b>${nf(m.hops.avg, 1)}</b></div><div><small>${T('stats.directRecv')}</small><b>${nf((m.hops.direct / m.hops.n) * 100)} %</b></div>` : ''}
+        ${m.hashBytes.map((h) => `<div><small>${T('route.hashBytes', { n: h.bytes })}</small><b>${nf(h.n)}</b></div>`).join('')}
       </div>
-      ${m.emojis.length ? `<div class="stat-chips"><small>Reaktionen:</small>${m.emojis.map((x) => `<span>${esc(x.e)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
-      ${m.scopes.length ? `<div class="stat-chips"><small>Scopes${m.scopesPartial ? ' (soweit bekannt)' : ''}:</small>${m.scopes.map((x) => `<span>${esc(x.label)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
-      ${m.reactions == null ? '<div class="hint">Reaktionen kennt MeshLink Chat hier nur für die zuletzt geladenen Nachrichten.</div>' : ''}
+      ${m.emojis.length ? `<div class="stat-chips"><small>${T('stats.reactions')}:</small>${m.emojis.map((x) => `<span>${esc(x.e)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
+      ${m.scopes.length ? `<div class="stat-chips"><small>Scopes${m.scopesPartial ? ` ${T('stats.asKnown')}` : ''}:</small>${m.scopes.map((x) => `<span>${esc(x.label)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
+      ${m.reactions == null ? `<div class="hint">${T('stats.reactNote')}</div>` : ''}
     </section>
     ${covNote}
     ${pk ? `
     <section class="card">
-      <div class="card-head"><b>Pakete pro ${multi ? 'Tag' : 'Stunde'}</b><small class="chart-tip" data-default="${nf(pk.total)} gesamt">${nf(pk.total)} gesamt</small></div>
-      ${bucketBars(pk.perBucket, st.starts, unit, 'Pakete')}
+      <div class="card-head"><b>${multi ? T('stats.pkPerDay') : T('stats.pkPerHour')}</b><small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(pk.total) }))}">${T('stats.total', { n: nf(pk.total) })}</small></div>
+      ${bucketBars(pk.perBucket, st.starts, unit, T('stats.nounPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Funk-Empfang</b></div>
+      <div class="card-head"><b>${T('stats.radio')}</b></div>
       <div class="stat-grid">
-        ${pk.snr ? `<div><small>SNR im Schnitt</small><b>${nf(pk.snr.avg, 1)} dB</b></div><div><small>SNR bester / schlechtester</small><b>${nf(pk.snr.max, 1)} / ${nf(pk.snr.min, 1)} dB</b></div>` : ''}
-        ${pk.rssi ? `<div><small>RSSI im Schnitt</small><b>${nf(pk.rssi.avg)} dBm</b></div>` : ''}
-        ${pk.routes.map((r) => `<div><small>${r.name === 'FLOOD' ? 'Flood-Pakete' : r.name === 'DIRECT' ? 'Direkt geroutete Pakete' : esc(r.name)}</small><b>${nf(r.n)}</b></div>`).join('')}
-        <div><small>Adverts</small><b>${nf(pk.adverts)}</b></div>
-        <div><small>Nodes mit Advert</small><b>${nf(pk.advertNodes)}</b></div>
-        <div><small>Repeater in Wegen</small><b>${nf(pk.relayCount)}</b></div>
+        ${pk.snr ? `<div><small>${T('stats.snrAvg')}</small><b>${nf(pk.snr.avg, 1)} dB</b></div><div><small>${T('stats.snrRange')}</small><b>${nf(pk.snr.max, 1)} / ${nf(pk.snr.min, 1)} dB</b></div>` : ''}
+        ${pk.rssi ? `<div><small>${T('stats.rssiAvg')}</small><b>${nf(pk.rssi.avg)} dBm</b></div>` : ''}
+        ${pk.routes.map((r) => `<div><small>${r.name === 'FLOOD' ? T('stats.floodPk') : r.name === 'DIRECT' ? T('stats.directPk') : esc(r.name)}</small><b>${nf(r.n)}</b></div>`).join('')}
+        <div><small>${T('pkt.advert')}</small><b>${nf(pk.adverts)}</b></div>
+        <div><small>${T('stats.advertNodes')}</small><b>${nf(pk.advertNodes)}</b></div>
+        <div><small>${T('stats.relayCount')}</small><b>${nf(pk.relayCount)}</b></div>
       </div>
     </section>
     <section class="card">
-      <div class="card-head"><b>Pakettypen</b></div>
-      ${rankList(pk.types.map((t) => ({ label: PACKET_LABELS[t.name] || t.name, sub: PACKET_LABELS[t.name] ? t.name : '', n: t.n })), 'Keine Pakete in diesem Zeitraum.')}
+      <div class="card-head"><b>${T('stats.pkTypes')}</b></div>
+      ${rankList(pk.types.map((t) => ({ label: PACKET_LABELS[t.name] || t.name, sub: PACKET_LABELS[t.name] ? t.name : '', n: t.n })), T('stats.noPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Wie weit kamen die Pakete her?</b></div>
-      ${rankList(hopHist, 'Keine Pakete in diesem Zeitraum.')}
+      <div class="card-head"><b>${T('stats.howFar')}</b></div>
+      ${rankList(hopHist, T('stats.noPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Direkt gehörte Repeater</b><small>letzte Station vor dir</small></div>
-      ${rankList(pk.lastHop.map((r) => ({ label: r.name || `#${r.hash}`, sub: r.snr != null ? `bester SNR ${nf(r.snr, 1)} dB` : '', n: r.n, node: r.id })), 'Nichts kam über einen Repeater.')}
+      <div class="card-head"><b>${T('stats.lastHop')}</b><small>${T('stats.lastHopSub')}</small></div>
+      ${rankList(pk.lastHop.map((r) => ({ label: r.name || `#${r.hash}`, sub: r.snr != null ? T('stats.bestSnr', { v: nf(r.snr, 1) }) : '', n: r.n, node: r.id })), T('stats.noRelay'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>Repeater im Weg</b><small>irgendwo auf der Strecke</small></div>
-      ${rankList(pk.relays.map((r) => ({ label: r.name || `#${r.hash}`, n: r.n, node: r.id })), 'Nichts kam über einen Repeater.')}
-    </section>` : st.packets?.error ? `<section class="card"><div class="muted">${st.packets.error === 'forbidden' ? 'Für die Paket-Statistik braucht der Token-Benutzer in MeshMonitor das Leserecht auf das Paket-Log.' : `Paket-Statistik nicht verfügbar: ${esc(st.packets.error)}`}</div></section>` : ''}
+      <div class="card-head"><b>${T('stats.relays')}</b><small>${T('stats.relaysSub')}</small></div>
+      ${rankList(pk.relays.map((r) => ({ label: r.name || `#${r.hash}`, n: r.n, node: r.id })), T('stats.noRelay'))}
+    </section>` : st.packets?.error ? `<section class="card"><div class="muted">${st.packets.error === 'forbidden' ? T('stats.pkForbidden') : T('stats.pkError', { msg: esc(st.packets.error) })}</div></section>` : ''}
     ${st.nodes ? `
     <section class="card">
-      <div class="card-head"><b>Gehörte Nodes</b><small>${nf(st.nodes.heard)} seit ${multi ? 'Beginn des Zeitraums' : 'Mitternacht'}</small></div>
-      <div class="stat-grid">${Object.entries(st.nodes.byType).map(([t, n]) => `<div><small>${esc(types[t] || 'Sonstige')}</small><b>${nf(n)}</b></div>`).join('') || '<div><small>Noch keine</small><b>0</b></div>'}</div>
+      <div class="card-head"><b>${T('stats.heardNodes')}</b><small>${T(multi ? 'stats.sinceStart' : 'stats.sinceMidnight', { n: nf(st.nodes.heard) })}</small></div>
+      <div class="stat-grid">${Object.entries(st.nodes.byType).map(([t, n]) => `<div><small>${esc(types[t] || types[0])}</small><b>${nf(n)}</b></div>`).join('') || `<div><small>${T('stats.noneYet')}</small><b>0</b></div>`}</div>
     </section>` : ''}
-    <div class="hint">Quelle: ${esc(st.source)}. Die Zahlen werden bei jedem Öffnen frisch aus MeshMonitor berechnet – MeshLink Chat speichert nichts davon.</div>`;
+    <div class="hint">${T('stats.footer', { src: esc(st.source) })}</div>`;
 }
 
 function onStatsClick(e) {
@@ -1399,16 +1431,16 @@ function onStatsClick(e) {
 // Eigenes Druck-Layout (style.css @media print): hell, ohne Knöpfe, Karten nicht über Seitenumbrüche zerteilt.
 // Der Dokumenttitel wird kurz zum Dateinamen-Vorschlag.
 function printStats() {
-  if (!S.stats || !S.statRange) { toast('Statistik lädt noch …'); return; }
+  if (!S.stats || !S.statRange) { toast(T('stats.stillLoading')); return; }
   const title = document.title;
   const d = new Date(S.statRange.from); // lokales Datum (nicht UTC – sonst kurz nach Mitternacht der Vortag)
   const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const tag = { today: 'Heute', yesterday: 'Gestern', 7: '7-Tage' }[S.statSel] || 'Statistik';
-  document.title = `MeshLink-Statistik ${tag} ${day}`;
+  const tag = { today: T('stats.fileToday'), yesterday: T('stats.fileYesterday'), 7: T('stats.fileWeek') }[S.statSel] || T('stats.title');
+  document.title = T('stats.fileName', { tag, day });
   document.body.classList.add('print-stats');
   const done = () => { document.title = title; document.body.classList.remove('print-stats'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
-  try { window.print(); } catch { toast('Drucken wird hier nicht unterstützt – im Browser öffnen'); }
+  try { window.print(); } catch { toast(T('stats.noPrint')); }
   // Browser ohne afterprint: Titel später zurück (die Klasse wirkt nur beim Drucken, darf also bleiben)
   setTimeout(() => { if (document.title !== title && !matchMedia('print').matches) document.title = title; }, 60000);
 }
@@ -1423,11 +1455,11 @@ function renderMentionsView() {
   app.innerHTML = `
     <div class="view view-mentions">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-        <div class="bar-title"><h2>Erwähnungen</h2><div class="sub" id="men-sub">Letzte 7 Tage, alle Kanäle</div></div>
-        <button class="icon-btn" id="men-refresh" aria-label="Aktualisieren">${ICON.refresh}</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+        <div class="bar-title"><h2>${T('men.title')}</h2><div class="sub" id="men-sub">${T('men.sub')}</div></div>
+        <button class="icon-btn" id="men-refresh" aria-label="${esc(T('common.refresh'))}">${ICON.refresh}</button>
       </header>
-      <main class="scroll" id="men-list"><div class="empty">Suche Erwähnungen …</div></main>
+      <main class="scroll" id="men-list"><div class="empty">${T('men.searching')}</div></main>
     </div>`;
   $('#back').onclick = () => history.back();
   $('#men-refresh').onclick = loadMentions;
@@ -1449,7 +1481,7 @@ async function loadMentions() {
     if (S.view !== 'mentions') return;
     S.mentions = r.mentions;
     const lr = S.lastRead || {};
-    $('#men-sub').textContent = `Letzte 7 Tage · ${r.mentions.length} Erwähnung${r.mentions.length === 1 ? '' : 'en'}${r.names.length ? ` von „${r.names[0]}“` : ''}`;
+    $('#men-sub').textContent = `${T('men.count', { n: r.mentions.length })}${r.names.length ? ` ${T('men.ofName', { name: r.names[0] })}` : ''}`;
     $('#men-list').innerHTML = r.mentions.map((m) => {
       const k = convOf(m);
       const unread = m.ts > (lr[k] || 0);
@@ -1457,13 +1489,13 @@ async function loadMentions() {
       <button class="conv ${unread ? 'men-unread' : ''}" data-men="${esc(m.id)}">
         ${avatar('dm:' + m.from)}
         <div class="conv-body">
-          <div class="conv-top"><span class="conv-title">${esc(nodeName(m.from))} <small class="muted">in ${esc(convTitle(k))}</small></span><span class="conv-time ${unread ? 'accent' : ''}">${esc(dayLabel(m.ts))} ${hm(m.ts)}</span></div>
-          <div class="conv-bottom"><span class="conv-preview">${esc(m.text.replace(/@\[([^\]]{1,40})\]/g, '@$1'))}</span>${unread ? '<span class="badge">neu</span>' : ''}</div>
+          <div class="conv-top"><span class="conv-title">${esc(nodeName(m.from))} <small class="muted">${T('men.in', { name: esc(convTitle(k)) })}</small></span><span class="conv-time ${unread ? 'accent' : ''}">${esc(dayLabel(m.ts))} ${hm(m.ts)}</span></div>
+          <div class="conv-bottom"><span class="conv-preview">${esc(m.text.replace(/@\[([^\]]{1,40})\]/g, '@$1'))}</span>${unread ? `<span class="badge">${T('men.new')}</span>` : ''}</div>
         </div>
       </button>`;
-    }).join('') + (r.truncated ? '<div class="empty">Sehr viele Nachrichten – ältere Erwähnungen evtl. nicht gefunden.</div>' : '')
-      + (r.skipped?.length ? `<div class="hint">Ohne Leserecht nicht durchsucht: ${esc(r.skipped.join(', '))} (Kanal-Rechte des Token-Benutzers in MeshMonitor).</div>` : '')
-      || `<div class="empty">${r.names.length ? 'Niemand hat dich in den letzten 7 Tagen erwähnt.' : 'Dein Absendername ist noch unbekannt – schreib einmal etwas in einen Kanal.'}</div>`;
+    }).join('') + (r.truncated ? `<div class="empty">${T('men.trunc')}</div>` : '')
+      + (r.skipped?.length ? `<div class="hint">${T('men.skipped', { list: esc(r.skipped.join(', ')) })}</div>` : '')
+      || `<div class="empty">${r.names.length ? T('men.none') : T('men.noName')}</div>`;
   } catch (e) {
     if (S.view === 'mentions') $('#men-list').innerHTML = `<div class="empty">${esc(permHint(e, 'messages:read'))}</div>`;
   }
@@ -1477,11 +1509,11 @@ function renderRepeaters() {
   app.innerHTML = `
     <div class="view view-repeaters">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-        <div class="bar-title"><h2>Repeater</h2><div class="sub" id="rp-sub">Deine Favoriten</div></div>
-        <button class="bar-pill" id="rp-watch" title="Repeater-Wächter">🔔 Wächter</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+        <div class="bar-title"><h2>${T('rp.title')}</h2><div class="sub" id="rp-sub">${T('rp.sub')}</div></div>
+        <button class="bar-pill" id="rp-watch" title="${esc(T('watch.title'))}">${T('rp.watchBtn')}</button>
       </header>
-      <main class="scroll node-page" id="rp-body"><div class="empty">Lade …</div></main>
+      <main class="scroll node-page" id="rp-body"><div class="empty">${T('common.loading')}</div></main>
     </div>`;
   $('#back').onclick = () => history.back();
   $('#rp-watch').onclick = openWatch;
@@ -1507,7 +1539,7 @@ function drawRepeaters(r) {
   $('#rp-watch').classList.toggle('on', Boolean(S.watch.on));
   const rows = [...r.repeaters].sort((a, b) => (a.lastHeard || 0) - (b.lastHeard || 0)); // Sorgenkinder zuerst
   const bad = rows.filter((x) => !x.lastHeard || now - x.lastHeard > limit).length;
-  $('#rp-sub').textContent = rows.length ? `${rows.length} Favoriten · ${bad ? `${bad} still` : 'alle aktiv'}` : 'Deine Favoriten';
+  $('#rp-sub').textContent = rows.length ? `${T('rp.count', { n: rows.length })} · ${bad ? T('rp.silent', { n: bad }) : T('rp.allActive')}` : T('rp.sub');
   const val = (st, k, f) => (st?.[k] ? f(st[k].v) : '–');
   $('#rp-body').innerHTML = rows.map((x) => {
     const age = x.lastHeard ? now - x.lastHeard : Infinity;
@@ -1516,48 +1548,48 @@ function drawRepeaters(r) {
     const lowBat = bat && S.watch.volts && bat.v < S.watch.volts;
     return `
     <section class="card rp-card" data-rp="${esc(x.id)}">
-      <div class="rp-head"><span class="lamp lamp-${lamp}" title="${lamp === 'ok' ? 'aktiv' : lamp === 'warn' ? 'länger nicht gehört' : 'still'}"></span><b>${x.type === 3 ? '🏠 ' : ''}${esc(x.name)}</b><small>${esc(ago(x.lastHeard))}</small></div>
+      <div class="rp-head"><span class="lamp lamp-${lamp}" title="${esc({ ok: T('rp.lampOk'), warn: T('rp.lampWarn'), bad: T('rp.lampBad') }[lamp])}"></span><b>${x.type === 3 ? '🏠 ' : ''}${esc(x.name)}</b><small>${esc(ago(x.lastHeard))}</small></div>
       <div class="stat-grid">
-        <div class="${lowBat ? 'rp-low' : ''}"><small>Akku</small><b>${val(x.status, 'battery', (v) => `${nf(v, 2)} V`)}</b></div>
-        <div><small>Rauschpegel</small><b>${val(x.status, 'noise', (v) => `${fmtNum(v)} dB`)}</b></div>
-        <div><small>Letzter SNR</small><b>${val(x.status, 'snr', (v) => `${fmtNum(v)} dB`)}</b></div>
-        <div><small>Laufzeit</small><b>${val(x.status, 'uptime', (v) => dur(v))}</b></div>
+        <div class="${lowBat ? 'rp-low' : ''}"><small>${T('node.battery')}</small><b>${val(x.status, 'battery', (v) => `${nf(v, 2)} V`)}</b></div>
+        <div><small>${T('node.noise')}</small><b>${val(x.status, 'noise', (v) => `${fmtNum(v)} dB`)}</b></div>
+        <div><small>${T('node.lastSnr')}</small><b>${val(x.status, 'snr', (v) => `${fmtNum(v)} dB`)}</b></div>
+        <div><small>${T('node.uptime')}</small><b>${val(x.status, 'uptime', (v) => dur(v))}</b></div>
       </div>
-      <div class="rp-foot">${x.status?.ts ? `Status ${esc(ago(x.status.ts))}` : 'Kein Status in den letzten 2 Tagen'}${x.hops != null ? ` · ${x.hops} Hop${x.hops === 1 ? '' : 's'}` : ''}${x.snr != null ? ` · SNR ${esc(x.snr)}` : ''}</div>
+      <div class="rp-foot">${x.status?.ts ? T('rp.statusAgo', { ago: esc(ago(x.status.ts)) }) : T('rp.noStatus')}${x.hops != null ? ` · ${T('common.hops', { n: x.hops })}` : ''}${x.snr != null ? ` · SNR ${esc(x.snr)}` : ''}</div>
     </section>`;
-  }).join('') || '<div class="empty">Keine Favoriten-Repeater.<br>In Kontakte → 📡 Repeater auf ☆ tippen, dann erscheinen sie hier.</div>';
-  if (r.telemetryForbidden) $('#rp-body').insertAdjacentHTML('beforeend', '<div class="hint">Akku- und Statuswerte: Der Token-Benutzer braucht in MeshMonitor das Recht, Telemetrie zu lesen.</div>');
-  else if (rows.length && rows.every((x) => !x.status?.ts)) $('#rp-body').insertAdjacentHTML('beforeend', '<div class="hint">Statuswerte gibt es, wenn MeshMonitor die Repeater regelmäßig abfragt (dort: Telemetrie-Abfrage für den Node einschalten) oder du auf der Node-Seite „Status jetzt abfragen“ nutzt.</div>');
+  }).join('') || `<div class="empty">${T('rp.none')}</div>`;
+  if (r.telemetryForbidden) $('#rp-body').insertAdjacentHTML('beforeend', `<div class="hint">${T('rp.telemetryForbidden')}</div>`);
+  else if (rows.length && rows.every((x) => !x.status?.ts)) $('#rp-body').insertAdjacentHTML('beforeend', `<div class="hint">${T('rp.statusHint')}</div>`);
 }
 
 // ------------------------------------------------------------------ Advert
 
 function openAdvert() {
   openSheet(`
-    <div class="sheet-title">Advert senden</div>
-    <button class="sheet-btn scope-opt" data-advert="zero_hop"><span>📍 Zero-Hop<small>Nur Nodes in direkter Funkreichweite hören dich. Schont das Netz.</small></span></button>
-    <button class="sheet-btn scope-opt" data-advert="flood"><span>📢 Flood<small>Wird über alle Repeater im ganzen Netz verteilt – sparsam nutzen.</small></span></button>
-    <div class="hint">Macht deinen Node „${esc(myName() || '')}“ bei anderen bekannt (Name, ggf. Position).</div>
-    <button class="sheet-btn cancel" data-close>Abbrechen</button>`, async (e) => {
+    <div class="sheet-title">${T('advert.title')}</div>
+    <button class="sheet-btn scope-opt" data-advert="zero_hop"><span>📍 Zero-Hop<small>${T('advert.zeroSub')}</small></span></button>
+    <button class="sheet-btn scope-opt" data-advert="flood"><span>📢 Flood<small>${T('advert.floodSub')}</small></span></button>
+    <div class="hint">${T('advert.hint', { name: esc(myName() || '') })}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.cancel')}</button>`, async (e) => {
     const b = e.target.closest('[data-advert]');
     if (!b) return;
     const mode = b.dataset.advert;
     closeSheet();
     try {
       await api('/api/advert', { method: 'POST', body: { mode } });
-      toast(mode === 'flood' ? 'Flood-Advert gesendet 📢' : 'Zero-Hop-Advert gesendet 📍');
+      toast(mode === 'flood' ? T('advert.sentFlood') : T('advert.sentZero'));
     } catch (err) {
-      toast(err.status === 403 ? 'Keine Berechtigung – der Token-Benutzer braucht „Verbindung: schreiben“ (connection:write)'
-        : err.code === 'TX_DISABLED' ? 'Senden ist für diese Quelle gesperrt (Nur-Empfang)'
-          : err.status === 429 ? 'Zu viele Anfragen – bitte kurz warten'
-            : `Advert fehlgeschlagen: ${err.message}`);
+      toast(err.status === 403 ? T('advert.noPerm')
+        : err.code === 'TX_DISABLED' ? T('advert.txDisabled')
+          : err.status === 429 ? T('advert.tooMany')
+            : T('advert.failed', { msg: err.message }));
     }
   });
 }
 
 // ------------------------------------------------------------------ Karte
 
-const MAP_RANGES = [[1, '24 h'], [3, '3 Tage'], [7, '7 Tage'], [30, '30 Tage']];
+const MAP_RANGES = [[1, '24 h'], [3, T('common.days', { n: 3 })], [7, T('common.days', { n: 7 })], [30, T('common.days', { n: 30 })]];
 const MAP_COLORS = { 1: '#2f7dd1', 2: '#1f9d6b', 3: '#d9822b', 4: '#8a62c9' };
 let leafletLoading = null;
 function loadLeaflet() {
@@ -1571,7 +1603,7 @@ function loadLeaflet() {
     const js = document.createElement('script');
     js.src = `/vendor/leaflet/leaflet.js${v}`;
     js.onload = () => resolve();
-    js.onerror = () => { leafletLoading = null; reject(new Error('Karte konnte nicht geladen werden')); };
+    js.onerror = () => { leafletLoading = null; reject(new Error(T('map.loadFailed'))); };
     document.head.appendChild(js);
   });
   return leafletLoading;
@@ -1581,12 +1613,12 @@ function loadLeaflet() {
 // Liest MeshMonitors Paket-Log seitenweise (gefiltert von MeshMonitor) und zerlegt jedes Paket Byte für Byte.
 // Nur im Speicher dieser Seite: höchstens 500 Pakete, beim Verlassen weg.
 const PK_TYPES = [
-  [null, 'Alle'], [4, 'Advert'], [5, 'Kanal'], [2, 'DM'], [3, 'ACK'], [8, 'Pfad'], [9, 'Trace'],
-  [0, 'Anfrage'], [1, 'Antwort'], [7, 'Anonym'], [6, 'Kanal-Daten'], [10, 'Mehrteilig'], [11, 'Steuerung'],
+  [null, T('pk.tAll')], [4, T('pk.tAdvert')], [5, T('pk.tChannel')], [2, 'DM'], [3, 'ACK'], [8, T('pk.tPath')], [9, 'Trace'],
+  [0, T('pk.tReq')], [1, T('pk.tResp')], [7, T('pk.tAnon')], [6, T('pk.tGrpData')], [10, T('pk.tMulti')], [11, T('pk.tControl')],
 ];
 const PK_TYPE_NAME = ['REQ', 'RESPONSE', 'TXT_MSG', 'ACK', 'ADVERT', 'GRP_TXT', 'GRP_DATA', 'ANON_REQ', 'PATH', 'TRACE', 'MULTIPART', 'CONTROL', null, null, null, 'RAW_CUSTOM'];
-const PK_ROUTES = [['', 'Jede Route'], ['1', 'Flood'], ['2', 'Direkt'], ['0', 'Flood mit Scope'], ['3', 'Direkt mit Scope']];
-const PK_ROUTE_LABEL = { 0: 'Flood mit Scope', 1: 'Flood', 2: 'Direkt', 3: 'Direkt mit Scope' };
+const PK_ROUTE_LABEL = { 0: T('pk.rFloodScope'), 1: 'Flood', 2: T('pk.rDirect'), 3: T('pk.rDirectScope') };
+const PK_ROUTES = [['', T('pk.rAny')], ['1', PK_ROUTE_LABEL[1]], ['2', PK_ROUTE_LABEL[2]], ['0', PK_ROUTE_LABEL[0]], ['3', PK_ROUTE_LABEL[3]]];
 const PK_ROUTE_SHORT = { 0: 'F·S', 1: 'F', 2: 'D', 3: 'D·S' };
 const PK_MAX = 500;
 const PK_PAGE = 50;
@@ -1640,7 +1672,7 @@ function pkDecode(raw) {
   let o = 0;
   const add = (len, label, value, cls) => {
     if (len <= 0) return null;
-    if (o + len > b.length) { errors.push(`${label}: Paket zu kurz`); len = b.length - o; if (len <= 0) return null; }
+    if (o + len > b.length) { errors.push(T('pk.tooShort', { label })); len = b.length - o; if (len <= 0) return null; }
     const bytes = b.subarray(o, o + len);
     fields.push({ o, len, label, value, cls });
     o += len;
@@ -1650,16 +1682,16 @@ function pkDecode(raw) {
   const u32 = (x, i) => (x[i] | (x[i + 1] << 8) | (x[i + 2] << 16) | (x[i + 3] << 24)) >>> 0;
   const h = b[0];
   const route = h & 3; const type = (h >> 2) & 15; const ver = h >> 6;
-  add(1, 'Header', `${PK_TYPE_NAME[type] || `Typ 0x${type.toString(16)}`} · ${PK_ROUTE_LABEL[route]} · Version ${ver + 1}`, 'hdr');
+  add(1, 'Header', `${PK_TYPE_NAME[type] || T('pk.typeN', { n: `0x${type.toString(16)}` })} · ${PK_ROUTE_LABEL[route]} · ${T('pk.version', { v: ver + 1 })}`, 'hdr');
   if (route === 0 || route === 3) {
-    const tc = add(4, 'Transport-Codes', '', 'tc');
-    if (tc?.length === 4) fields[fields.length - 1].value = `${u16(tc, 0)} / ${u16(tc, 2)} – Scope-Kennung (Region)`;
+    const tc = add(4, T('pk.fTransport'), '', 'tc');
+    if (tc?.length === 4) fields[fields.length - 1].value = `${u16(tc, 0)} / ${u16(tc, 2)} – ${T('pk.scopeId')}`;
   }
   let hops = 0; let hs = 1;
   if (o < b.length) {
     const pl = b[o];
     hs = (pl >> 6) + 1; hops = pl & 63;
-    add(1, 'Pfadlänge', type === 9 ? `${hops} SNR-Wert${hops === 1 ? '' : 'e'} (Trace)` : `${hops} Hop${hops === 1 ? '' : 's'} · ${hs}-Byte-Kennungen`, 'plen');
+    add(1, T('pk.fPathLen'), type === 9 ? T('pk.snrValues', { n: hops }) : `${T('common.hops', { n: hops })} · ${T('route.hashBytes', { n: hs })}`, 'plen');
     for (let i = 0; i < hops; i++) {
       if (type === 9) { // Trace: im Pfad sammeln die Repeater ihre SNR-Werte (int8, ×4)
         const x = add(1, `SNR ${i + 1}`, '', 'snr');
@@ -1669,7 +1701,7 @@ function pkDecode(raw) {
         if (x) { const hx = pkHex(x); const nm = pkHashName(hx); fields[fields.length - 1].value = `${hx}${nm ? ` · ${nm}` : ''}`; fields[fields.length - 1].hash = hx; }
       }
     }
-  } else errors.push('Paket endet vor der Pfadlänge');
+  } else errors.push(T('pk.endsEarly'));
   const payloadAt = o;
   const rest = () => b.length - o;
   const hashField = (label, cls, anyType) => {
@@ -1677,17 +1709,17 @@ function pkDecode(raw) {
     if (x) { const hx = pkHex(x); const nm = pkHashName(hx, anyType); fields[fields.length - 1].value = `${hx}${nm ? ` · ${nm}?` : ''}`; }
   };
   if (type === 4) { // ADVERT – unverschlüsselt
-    const k = add(32, 'Öffentlicher Schlüssel', '', 'key');
+    const k = add(32, T('pk.fPubKey'), '', 'key');
     if (k) { const n = node(`mc:${pkHex(k)}`); fields[fields.length - 1].value = `${pkHex(k).slice(0, 16)}…${n ? ` · ${n.long || n.short}` : ''}`; fields[fields.length - 1].pk = pkHex(k); }
-    const ts = add(4, 'Zeitstempel', '', 'ts');
-    if (ts?.length === 4) { const t = u32(ts, 0); fields[fields.length - 1].value = t ? new Date(t * 1000).toLocaleString('de-DE') : '0'; }
-    add(64, 'Signatur', 'Ed25519 über Schlüssel, Zeit und App-Daten', 'sig');
+    const ts = add(4, T('pk.fTimestamp'), '', 'ts');
+    if (ts?.length === 4) { const t = u32(ts, 0); fields[fields.length - 1].value = t ? new Date(t * 1000).toLocaleString(LOC) : '0'; }
+    add(64, T('pk.fSig'), T('pk.sigNote'), 'sig');
     if (rest() > 0) {
       const fl = b[o];
-      const kind = ['–', 'Chat', 'Repeater', 'Room-Server', 'Sensor'][fl & 15] || `Typ ${fl & 15}`;
-      add(1, 'Flags', `${kind}${fl & 0x10 ? ' · Position' : ''}${fl & 0x20 ? ' · Feature 1' : ''}${fl & 0x40 ? ' · Feature 2' : ''}${fl & 0x80 ? ' · Name' : ''}`, 'flag');
+      const kind = ['–', 'Chat', T('type.repeater'), T('type.room'), T('type.sensor')][fl & 15] || T('pk.typeN', { n: fl & 15 });
+      add(1, 'Flags', `${kind}${fl & 0x10 ? ` · ${T('pk.fPos')}` : ''}${fl & 0x20 ? ' · Feature 1' : ''}${fl & 0x40 ? ' · Feature 2' : ''}${fl & 0x80 ? ` · ${T('pk.fName')}` : ''}`, 'flag');
       if (fl & 0x10) {
-        const ll = add(8, 'Position', '', 'pos');
+        const ll = add(8, T('pk.fPos'), '', 'pos');
         if (ll?.length === 8) { const dv = new DataView(ll.buffer, ll.byteOffset, 8); fields[fields.length - 1].value = `${(dv.getInt32(0, true) / 1e6).toFixed(5)}, ${(dv.getInt32(4, true) / 1e6).toFixed(5)}`; }
       }
       if (fl & 0x20) add(2, 'Feature 1', '', 'misc');
@@ -1695,48 +1727,48 @@ function pkDecode(raw) {
       if (fl & 0x80 && rest() > 0) {
         const nb = b.subarray(o);
         const end = nb.indexOf(0);
-        add(end < 0 ? nb.length : end + 1, 'Name', new TextDecoder().decode(end < 0 ? nb : nb.subarray(0, end)), 'name');
+        add(end < 0 ? nb.length : end + 1, T('pk.fName'), new TextDecoder().decode(end < 0 ? nb : nb.subarray(0, end)), 'name');
       }
     }
   } else if (type === 3) {
     add(4, 'ACK-Code', '', 'ack');
-    fields[fields.length - 1].value = 'Prüfsumme der bestätigten Nachricht';
+    fields[fields.length - 1].value = T('pk.ackNote');
   } else if (type === 5 || type === 6) {
-    add(1, 'Kanal-Hash', '', 'dst');
-    fields[fields.length - 1].value = `${pkHex(b.subarray(o - 1, o))} – erstes Byte des Kanal-Schlüssel-Hashs`;
-    add(2, 'MAC', 'Prüfcode der Verschlüsselung', 'mac');
-    add(rest(), 'Verschlüsselter Inhalt', `${rest()} Bytes`, 'enc');
+    add(1, T('pk.fChHash'), '', 'dst');
+    fields[fields.length - 1].value = `${pkHex(b.subarray(o - 1, o))} – ${T('pk.chHashNote')}`;
+    add(2, 'MAC', T('pk.macNote'), 'mac');
+    add(rest(), T('pk.fEnc'), T('pk.nBytes', { n: rest() }), 'enc');
   } else if (type === 0 || type === 1 || type === 2 || type === 8) {
-    hashField('Ziel', 'dst', true);
-    hashField('Absender', 'src', true);
-    add(2, 'MAC', 'Prüfcode der Verschlüsselung', 'mac');
-    add(rest(), 'Verschlüsselter Inhalt', `${rest()} Bytes`, 'enc');
+    hashField(T('pk.fDst'), 'dst', true);
+    hashField(T('pk.fSrc'), 'src', true);
+    add(2, 'MAC', T('pk.macNote'), 'mac');
+    add(rest(), T('pk.fEnc'), T('pk.nBytes', { n: rest() }), 'enc');
   } else if (type === 7) {
-    hashField('Ziel', 'dst', false);
-    const k = add(32, 'Absender-Schlüssel', '', 'key');
+    hashField(T('pk.fDst'), 'dst', false);
+    const k = add(32, T('pk.fSrcKey'), '', 'key');
     if (k) { const n = node(`mc:${pkHex(k)}`); fields[fields.length - 1].value = `${pkHex(k).slice(0, 16)}…${n ? ` · ${n.long || n.short}` : ''}`; fields[fields.length - 1].pk = pkHex(k); }
-    add(2, 'MAC', 'Prüfcode der Verschlüsselung', 'mac');
-    add(rest(), 'Verschlüsselter Inhalt', `${rest()} Bytes`, 'enc');
+    add(2, 'MAC', T('pk.macNote'), 'mac');
+    add(rest(), T('pk.fEnc'), T('pk.nBytes', { n: rest() }), 'enc');
   } else if (type === 9) {
     const tag = add(4, 'Tag', '', 'misc');
-    if (tag?.length === 4) fields[fields.length - 1].value = `${u32(tag, 0)} – Kennung dieser Trace`;
+    if (tag?.length === 4) fields[fields.length - 1].value = `${u32(tag, 0)} – ${T('pk.traceTag')}`;
     add(4, 'Auth-Code', '', 'mac');
     const fl = add(1, 'Flags', '', 'flag');
     const ths = fl ? 1 << (fl[0] & 3) : 1;
-    if (fl) fields[fields.length - 1].value = `${ths}-Byte-Kennungen`;
+    if (fl) fields[fields.length - 1].value = T('route.hashBytes', { n: ths });
     for (let i = 0; rest() > 0 && i < 64; i++) {
       const x = add(Math.min(ths, rest()), `Route ${i + 1}`, '', 'path');
       if (x) { const hx = pkHex(x); const nm = pkHashName(hx); fields[fields.length - 1].value = `${hx}${nm ? ` · ${nm}` : ''}`; fields[fields.length - 1].hash = hx; }
     }
   } else if (type === 10) {
-    const x = add(1, 'Teil', '', 'flag');
-    if (x) fields[fields.length - 1].value = `noch ${x[0] >> 4} Teil(e) · innen ${PK_TYPE_NAME[x[0] & 15] || x[0] & 15}`;
-    add(rest(), 'Inhalt', `${rest()} Bytes`, 'misc');
+    const x = add(1, T('pk.fPart'), '', 'flag');
+    if (x) fields[fields.length - 1].value = T('pk.partNote', { n: x[0] >> 4, inner: PK_TYPE_NAME[x[0] & 15] || x[0] & 15 });
+    add(rest(), T('pk.fContent'), T('pk.nBytes', { n: rest() }), 'misc');
   } else if (type === 11) {
-    const x = add(1, 'Untertyp', '', 'flag');
-    if (x) fields[fields.length - 1].value = ({ 0x80: 'Node-Suche (Anfrage)', 0x90: 'Node-Suche (Antwort)' })[x[0] & 0xf0] || `0x${(x[0] & 0xf0).toString(16)}`;
-    add(rest(), 'Daten', `${rest()} Bytes`, 'misc');
-  } else add(rest(), 'Nutzdaten', `${rest()} Bytes`, 'misc');
+    const x = add(1, T('pk.fSubtype'), '', 'flag');
+    if (x) fields[fields.length - 1].value = ({ 0x80: T('pk.discReq'), 0x90: T('pk.discResp') })[x[0] & 0xf0] || `0x${(x[0] & 0xf0).toString(16)}`;
+    add(rest(), T('pk.fData'), T('pk.nBytes', { n: rest() }), 'misc');
+  } else add(rest(), T('pk.fPayload'), T('pk.nBytes', { n: rest() }), 'misc');
   return { type, route, ver, hops, hs, fields, errors, total: b.length, payloadAt, key: raw.slice(payloadAt * 2) };
 }
 
@@ -1759,14 +1791,14 @@ function renderPackets() {
   app.innerHTML = `
     <div class="view view-packets">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-        <div class="bar-title"><h2>Pakete</h2><div class="sub" id="pk-sub">Lade …</div></div>
-        <button class="bar-pill ${S.pk.live ? 'on' : ''}" id="pk-live" title="Neue Pakete automatisch holen">⚡ Live</button>
-        <button class="icon-btn" id="pk-refresh" aria-label="Aktualisieren">${ICON.refresh}</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+        <div class="bar-title"><h2>${T('pk.title')}</h2><div class="sub" id="pk-sub">${T('common.loading')}</div></div>
+        <button class="bar-pill ${S.pk.live ? 'on' : ''}" id="pk-live" title="${esc(T('pk.liveTitle'))}">⚡ Live</button>
+        <button class="icon-btn" id="pk-refresh" aria-label="${esc(T('common.refresh'))}">${ICON.refresh}</button>
       </header>
       <div class="segments" id="pk-types">${PK_TYPES.map(([v, l]) => `<button class="seg ${f.type === v ? 'active' : ''}" data-type="${v ?? ''}">${v != null ? `<i class="pk-dot" style="background:${liveKind(PK_TYPE_NAME[v])[0]}"></i>` : ''}${esc(l)}</button>`).join('')}</div>
       <div class="pk-filter">
-        <input id="pk-q" type="search" placeholder="Suche oder Repeater-Kennung (b3f8)" value="${esc(f.q || f.via)}" autocomplete="off" enterkeyhint="search">
+        <input id="pk-q" type="search" placeholder="${esc(T('pk.searchPh'))}" value="${esc(f.q || f.via)}" autocomplete="off" enterkeyhint="search">
         <select id="pk-route" aria-label="Route">${PK_ROUTES.map(([v, l]) => `<option value="${v}" ${f.route === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
       </div>
       <div class="pk-chips" id="pk-chips"></div>
@@ -1827,13 +1859,13 @@ function pkQuery(extra = {}) {
 let pkSeq = 0;
 async function pkLoad(reset) {
   const seq = ++pkSeq;
-  if (reset) { S.pk.list = []; S.pk.end = false; S.pk.total = null; $('#pk-list').innerHTML = '<div class="empty">Lade Pakete …</div>'; }
+  if (reset) { S.pk.list = []; S.pk.end = false; S.pk.total = null; $('#pk-list').innerHTML = `<div class="empty">${T('pk.loading')}</div>`; }
   pkChips();
   S.pk.busy = true;
   try {
     const r = await api(`/api/packets?${pkQuery({ offset: S.pk.list.length })}`);
     if (S.view !== 'packets' || seq !== pkSeq) return;
-    if (r.unsupported) { $('#pk-list').innerHTML = '<div class="empty">Der Paket-Analyzer gibt es nur für MeshCore-Quellen.</div>'; return; }
+    if (r.unsupported) { $('#pk-list').innerHTML = `<div class="empty">${T('pk.unsupported')}</div>`; return; }
     const have = new Set(S.pk.list.map((p) => p.id));
     S.pk.list.push(...r.packets.filter((p) => !have.has(p.id)));
     S.pk.total = r.total;
@@ -1844,7 +1876,7 @@ async function pkLoad(reset) {
     if (S.view !== 'packets' || seq !== pkSeq) return;
     S.pk.err = e;
     if (!S.pk.list.length) $('#pk-list').innerHTML = `<div class="empty">${esc(permHint(e, 'packetmonitor:read'))}</div>`;
-    else toast(`Pakete nicht geladen: ${e.message}`);
+    else toast(T('pk.loadFailed', { msg: e.message }));
   } finally { if (seq === pkSeq) S.pk.busy = false; }
 }
 // Live: nur Neues seit dem jüngsten Paket holen und oben einfügen (Scroll-Position bleibt stehen)
@@ -1871,9 +1903,9 @@ async function pkPoll() {
 function pkChips() {
   const f = S.pk.f;
   const chips = [];
-  if (f.via) chips.push(['via', `über ${pkHop(f.via)}`]);
-  if (f.from) chips.push(['from', `von ${pkFrom({ from: `mc:${f.from}` }) || f.from.slice(0, 8)}`]);
-  if (f.q) chips.push(['q', `„${f.q}“`]);
+  if (f.via) chips.push(['via', T('pk.chipVia', { name: pkHop(f.via) })]);
+  if (f.from) chips.push(['from', T('pk.chipFrom', { name: pkFrom({ from: `mc:${f.from}` }) || f.from.slice(0, 8) })]);
+  if (f.q) chips.push(['q', T('pk.chipQ', { q: f.q })]);
   const el = $('#pk-chips');
   if (el) el.innerHTML = chips.map(([k, l]) => `<button class="pk-chip" data-unset="${k}">${esc(l)} <span aria-hidden="true">✕</span></button>`).join('');
 }
@@ -1885,13 +1917,13 @@ function pkRow(p) {
   let line2 = '';
   if (p.text) line2 = `💬 ${esc(p.text)}`;
   else if (p.path.length && p.type !== 9) line2 = p.path.map((h) => esc(pkHop(h))).join(' › ');
-  else if (p.type === 9 && p.path.length) line2 = `Trace mit ${p.path.length} SNR-Wert${p.path.length === 1 ? '' : 'en'}`;
-  else line2 = hops === 0 ? '<span class="muted">direkt gehört</span>' : '';
+  else if (p.type === 9 && p.path.length) line2 = esc(T('pk.traceWith', { n: p.path.length }));
+  else line2 = hops === 0 ? `<span class="muted">${T('pk.heardDirect')}</span>` : '';
   const t = new Date(p.t);
   return `<button class="pk-row ${p._new ? 'pk-new' : ''}" data-pk="${esc(p.id)}">
     <span class="pk-type" style="--c:${color}">${esc(pkTypeLabel(p))}</span>
     <span class="pk-main">
-      <span class="pk-l1"><b>${esc(from || '–')}</b><span class="pk-route" title="${esc(PK_ROUTE_LABEL[p.route] || p.routeName || '')}">${esc(PK_ROUTE_SHORT[p.route] || '')}${hops ? ` · ${hops} Hop${hops === 1 ? '' : 's'}` : ''}</span>${copies ? `<span class="pk-copies" title="Gleicher Inhalt ${copies + 1}× gehört">×${copies + 1}</span>` : ''}</span>
+      <span class="pk-l1"><b>${esc(from || '–')}</b><span class="pk-route" title="${esc(PK_ROUTE_LABEL[p.route] || p.routeName || '')}">${esc(PK_ROUTE_SHORT[p.route] || '')}${hops ? ` · ${T('common.hops', { n: hops })}` : ''}</span>${copies ? `<span class="pk-copies" title="${esc(T('pk.copiesTitle', { n: copies + 1 }))}">×${copies + 1}</span>` : ''}</span>
       <span class="pk-l2">${line2}</span>
     </span>
     <span class="pk-side"><span>${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}</span><small>${p.snr != null ? `${nf(p.snr, 1)} dB` : ''}${p.rssi != null ? ` · ${p.rssi}` : ''}</small></span>
@@ -1902,17 +1934,17 @@ function pkDraw() {
   if (!el) return;
   const n = S.pk.list.length;
   const sub = $('#pk-sub');
-  if (sub) sub.textContent = n ? `${nf(n)}${S.pk.total != null ? ` von ${nf(S.pk.total)}` : ''} Paketen${S.pk.live ? ' · live' : ''}` : 'keine Pakete';
-  if (!n) { el.innerHTML = '<div class="empty">Keine Pakete für diesen Filter.</div>'; return; }
+  if (sub) sub.textContent = n ? `${S.pk.total != null ? T('pk.countOf', { n, num: nf(n), total: nf(S.pk.total) }) : T('pk.count', { n, num: nf(n) })}${S.pk.live ? ' · live' : ''}` : T('pk.none');
+  if (!n) { el.innerHTML = `<div class="empty">${T('pk.noneFilter')}</div>`; return; }
   // Kurze Typ-Übersicht der geladenen Pakete
   const counts = new Map();
   for (const p of S.pk.list) { const l = pkTypeLabel(p); counts.set(l, (counts.get(l) || 0) + 1); }
   const mix = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  const bar = `<div class="pk-mix" title="Anteile der geladenen Pakete">${mix.map(([l, c]) => `<i style="flex:${c};background:${liveKind(PK_TYPE_NAME[PK_TYPES.find(([, x]) => x === l)?.[0]] || l)[0]}" title="${esc(l)}: ${c}"></i>`).join('')}</div>
+  const bar = `<div class="pk-mix" title="${esc(T('pk.mixTitle'))}">${mix.map(([l, c]) => `<i style="flex:${c};background:${liveKind(PK_TYPE_NAME[PK_TYPES.find(([, x]) => x === l)?.[0]] || l)[0]}" title="${esc(l)}: ${c}"></i>`).join('')}</div>
     <div class="pk-mix-legend">${mix.slice(0, 6).map(([l, c]) => `<span>${esc(l)} <b>${nf(c)}</b></span>`).join('')}</div>`;
   el.innerHTML = bar + S.pk.list.map(pkRow).join('') + (S.pk.end
-    ? `<div class="pk-end">${n >= PK_MAX ? `Höchstens ${PK_MAX} Pakete auf einmal – Filter eingrenzen für ältere.` : 'Ende des Paket-Logs.'}</div>`
-    : '<button class="pk-more" id="pk-more">Ältere laden</button>');
+    ? `<div class="pk-end">${n >= PK_MAX ? T('pk.max', { n: PK_MAX }) : T('pk.end')}</div>`
+    : `<button class="pk-more" id="pk-more">${T('pk.more')}</button>`);
   S.pk.list.forEach((p) => { delete p._new; });
 }
 
@@ -1925,34 +1957,34 @@ function openPacket(id) {
   const from = pkFrom(p);
   const hops = p.hops ?? p.path.length;
   const row = (k, v) => (v ? `<div class="lp-row"><span>${esc(k)}</span><b>${v}</b></div>` : '');
-  const way = p.type === 9 ? null : [from || '?', ...p.path.map(pkHop), 'Du'];
+  const way = p.type === 9 ? null : [from || '?', ...p.path.map(pkHop), T('common.you')];
   const copies = pkCopies(p);
   const hex = d ? d.fields.map((fl, i) => `<span class="pk-f" data-fi="${i}" style="--c:${PK_FIELD_COLORS[fl.cls] || '#888'}">${p.raw.slice(fl.o * 2, (fl.o + fl.len) * 2).replace(/(..)/g, '$1 ').trim()}</span>`).join(' ') : '';
-  const table = d ? d.fields.map((fl, i) => `<button class="pk-frow" data-fi="${i}" style="--c:${PK_FIELD_COLORS[fl.cls] || '#888'}"><i></i><span class="pk-fo">${fl.o}${fl.len > 1 ? `–${fl.o + fl.len - 1}` : ''}</span><span class="pk-fl">${esc(fl.label)}</span><span class="pk-fv">${esc(fl.value || `${fl.len} Byte${fl.len === 1 ? '' : 's'}`)}</span></button>`).join('') : '';
+  const table = d ? d.fields.map((fl, i) => `<button class="pk-frow" data-fi="${i}" style="--c:${PK_FIELD_COLORS[fl.cls] || '#888'}"><i></i><span class="pk-fo">${fl.o}${fl.len > 1 ? `–${fl.o + fl.len - 1}` : ''}</span><span class="pk-fl">${esc(fl.label)}</span><span class="pk-fv">${esc(fl.value || T('pk.nBytes', { n: fl.len }))}</span></button>`).join('') : '';
   openSheet(`
     <div class="map-pop live-pkt pk-detail">
-      <div class="lp-head"><i style="background:${color}"></i><b>${esc(pkTypeLabel(p))}</b><small>${esc(pkKind(p))}</small><span>${esc(new Date(p.t).toLocaleString('de-DE'))}</span></div>
-      ${row('Von', esc(from || 'unbekannt'))}
-      ${p.text ? row('Text', esc(p.text)) : ''}
-      ${way ? row('Weg', way.map(esc).join(' › ')) : ''}
-      ${row('Hops', `${nf(hops)}${hops === 0 ? ' (direkt gehört)' : ''} · ${esc(PK_ROUTE_LABEL[p.route] || p.routeName || '?')}`)}
-      ${row('Bei dir', [p.snr != null ? `SNR ${nf(p.snr, 2)} dB` : '', p.rssi != null ? `RSSI ${p.rssi} dBm` : ''].filter(Boolean).join(' · '))}
-      ${row('Größe', d ? `${d.total} Bytes gesamt · ${d.total - d.payloadAt} Bytes Nutzdaten` : p.size != null ? `${p.size} Bytes Nutzdaten` : '')}
-      ${copies.length ? `<div class="pk-sec">Gleicher Inhalt noch ${copies.length}× gehört</div>${copies.slice(0, 8).map((c) => `<button class="pk-copy" data-pk-open="${esc(c.id)}"><span>${esc(new Date(c.t).toLocaleTimeString('de-DE'))}</span><b>${c.path.length ? c.path.map((h) => esc(pkHop(h))).join(' › ') : 'direkt'}</b><small>${c.snr != null ? `${nf(c.snr, 1)} dB` : ''}</small></button>`).join('')}` : ''}
+      <div class="lp-head"><i style="background:${color}"></i><b>${esc(pkTypeLabel(p))}</b><small>${esc(pkKind(p))}</small><span>${esc(new Date(p.t).toLocaleString(LOC))}</span></div>
+      ${row(T('pk.rFrom'), esc(from || T('common.unknown')))}
+      ${p.text ? row(T('pk.rText'), esc(p.text)) : ''}
+      ${way ? row(T('pk.rPath'), way.map(esc).join(' › ')) : ''}
+      ${row('Hops', `${nf(hops)}${hops === 0 ? ` (${T('pk.heardDirect')})` : ''} · ${esc(PK_ROUTE_LABEL[p.route] || p.routeName || '?')}`)}
+      ${row(T('pk.rAtYou'), [p.snr != null ? `SNR ${nf(p.snr, 2)} dB` : '', p.rssi != null ? `RSSI ${p.rssi} dBm` : ''].filter(Boolean).join(' · '))}
+      ${row(T('pk.rSize'), d ? esc(T('pk.sizeFull', { total: d.total, payload: d.total - d.payloadAt })) : p.size != null ? esc(T('pk.sizePayload', { n: p.size })) : '')}
+      ${copies.length ? `<div class="pk-sec">${T('pk.copiesMore', { n: copies.length })}</div>${copies.slice(0, 8).map((c) => `<button class="pk-copy" data-pk-open="${esc(c.id)}"><span>${esc(new Date(c.t).toLocaleTimeString(LOC))}</span><b>${c.path.length ? c.path.map((h) => esc(pkHop(h))).join(' › ') : T('common.direct')}</b><small>${c.snr != null ? `${nf(c.snr, 1)} dB` : ''}</small></button>`).join('')}` : ''}
       <div class="pk-actions">
-        ${p.type !== 9 && p.path.length ? '<button class="route-map" data-pk-act="map">🗺️ Weg auf Karte</button>' : ''}
-        ${p.path.length && p.type !== 9 ? `<button class="route-map" data-pk-act="via">Nur über ${esc(pkHop(p.path[p.path.length - 1]))}</button>` : ''}
-        ${p.from ? `<button class="route-map" data-pk-act="from">Nur von ${esc(from || 'diesem Absender')}</button>` : ''}
+        ${p.type !== 9 && p.path.length ? `<button class="route-map" data-pk-act="map">${T('pk.mapBtn')}</button>` : ''}
+        ${p.path.length && p.type !== 9 ? `<button class="route-map" data-pk-act="via">${T('pk.onlyVia', { name: esc(pkHop(p.path[p.path.length - 1])) })}</button>` : ''}
+        ${p.from ? `<button class="route-map" data-pk-act="from">${T('pk.onlyFrom', { name: esc(from || T('pk.thisSender')) })}</button>` : ''}
       </div>
-      ${d ? `<div class="pk-sec">Aufschlüsselung <small>${d.total} Bytes – Feld antippen zum Markieren</small></div>
+      ${d ? `<div class="pk-sec">${T('pk.breakdown')} <small>${T('pk.breakdownSub', { n: d.total })}</small></div>
         <div class="pk-hex" id="pk-hex">${hex}</div>
         <div class="pk-fields">${table}</div>
         ${d.errors.length ? `<div class="lp-note">⚠ ${esc(d.errors.join(' · '))}</div>` : ''}
-        ${[2, 0, 1, 5, 6, 7, 8].includes(d.type) ? '<div class="lp-note">Der Inhalt ist Ende-zu-Ende verschlüsselt. Lesbar sind nur Kopf, Weg und Kennungen.</div>' : ''}
-        <button class="route-map" data-pk-act="copy">⧉ Rohdaten kopieren</button>`
-      : '<div class="lp-note">Keine Rohdaten im Paket-Log gespeichert.</div>'}
+        ${[2, 0, 1, 5, 6, 7, 8].includes(d.type) ? `<div class="lp-note">${T('pk.e2e')}</div>` : ''}
+        <button class="route-map" data-pk-act="copy">${T('pk.copyRaw')}</button>`
+      : `<div class="lp-note">${T('pk.noRaw')}</div>`}
     </div>
-    <button class="sheet-btn cancel" data-close>Schließen</button>`, (e) => {
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     const fr = e.target.closest('[data-fi]');
     if (fr) {
       const i = fr.dataset.fi;
@@ -1965,12 +1997,12 @@ function openPacket(id) {
     const o = e.target.closest('[data-pk-open]');
     if (o) { openPacket(o.dataset.pkOpen); return; }
     const act = e.target.closest('[data-pk-act]')?.dataset.pkAct;
-    if (act === 'copy') { navigator.clipboard?.writeText(p.raw).then(() => toast('Rohdaten kopiert'), () => toast('Kopieren nicht möglich')); return; }
+    if (act === 'copy') { navigator.clipboard?.writeText(p.raw).then(() => toast(T('pk.copied')), () => toast(T('common.copyFailed'))); return; }
     if (act === 'map') {
       closeSheet();
-      showOnMap({ title: `${pkTypeLabel(p)} von ${from || '?'}`, numberFrom: 0, points: [
+      showOnMap({ title: T('pk.mapTitle', { type: pkTypeLabel(p), from: from || '?' }), numberFrom: 0, points: [
         ...(p.from ? [{ id: p.from, label: from, tag: '✉' }] : p.src ? [{ hash: p.src, label: from || `#${p.src}`, tag: '✉' }] : []),
-        ...p.path.map((h) => ({ hash: h, label: pkHop(h) })), { me: true, label: 'Du' }] });
+        ...p.path.map((h) => ({ hash: h, label: pkHop(h) })), { me: true, label: T('common.you') }] });
       return;
     }
     if (act === 'via' || act === 'from') {
@@ -1998,15 +2030,15 @@ function renderMap() {
   app.innerHTML = `
     <div class="view view-map">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
-        <div class="bar-title"><h2>Karte</h2><div class="sub" id="map-sub">Lade …</div></div>
-        ${S.source?.protocol === 'meshcore' ? `<button class="bar-pill${S.live.on ? ' on' : ''}" id="live-btn" title="Pakete live auf der Karte zeigen">⚡ Live</button><button class="bar-pill" id="trace-btn" title="Eigene Traceroute über selbst gewählte Repeater">🧭 Trace</button>` : ''}
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
+        <div class="bar-title"><h2>${T('map.title')}</h2><div class="sub" id="map-sub">${T('common.loading')}</div></div>
+        ${S.source?.protocol === 'meshcore' ? `<button class="bar-pill${S.live.on ? ' on' : ''}" id="live-btn" title="${esc(T('map.liveTitle'))}">⚡ Live</button><button class="bar-pill" id="trace-btn" title="${esc(T('map.traceTitle'))}">🧭 Trace</button>` : ''}
       </header>
-      <div class="segments" id="map-range">${MAP_RANGES.map(([d, l]) => `<button class="seg" data-days="${d}">${l}</button>`).join('')}<button class="seg" data-links="1" title="Verbindungen ein/aus">〰 Linien</button></div>
+      <div class="segments" id="map-range">${MAP_RANGES.map(([d, l]) => `<button class="seg" data-days="${d}">${l}</button>`).join('')}<button class="seg" data-links="1" title="${esc(T('map.linksTitle'))}">${T('map.links')}</button></div>
       <div class="map-focus hidden" id="map-focus"></div>
       <div class="map" id="map"></div>
       <div class="map-legend live-legend${S.live.on ? '' : ' hidden'}" id="live-legend"></div>
-      <div class="map-legend"><span><i style="background:#c8372d"></i>Du</span>${[1, 2, 3, 4].map((t) => `<span><i style="background:${MAP_COLORS[t]}"></i>${esc(TYPE[t]?.label || '')}</span>`).join('')}<span><b class="lg-line"></b>im Weg gesehen</span><span><b class="lg-line lg-dash"></b>direkt gehört</span><span><b class="lg-line lg-dot"></b>Repeater-Nachbarn</span></div>
+      <div class="map-legend"><span><i style="background:#c8372d"></i>${T('common.you')}</span>${[1, 2, 3, 4].map((t) => `<span><i style="background:${MAP_COLORS[t]}"></i>${esc(TYPE[t]?.label || '')}</span>`).join('')}<span><b class="lg-line"></b>${T('map.lgSeen')}</span><span><b class="lg-line lg-dash"></b>${T('map.lgDirect')}</span><span><b class="lg-line lg-dot"></b>${T('map.lgNb')}</span></div>
     </div>`;
   $('#back').onclick = () => history.back();
   $('#map-range').onclick = (e) => {
@@ -2047,14 +2079,14 @@ const ESRI_ATTR = 'Tiles &copy; Esri';
 const ESRI = (svc) => `https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`;
 // Nur Dienste ohne API-Schlüssel (CARTO verlangt inzwischen einen). native = tiefste echte Zoomstufe; darüber vergrößert Leaflet.
 const MAP_STYLES = {
-  auto: { name: 'Automatisch', sub: 'OpenStreetMap, im Dunkelmodus abgedunkelt', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR, auto: true },
-  osm: { name: 'OpenStreetMap', sub: 'Standard, immer hell', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
-  night: { name: 'Dunkel', sub: 'OpenStreetMap, immer abgedunkelt', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR, invert: true, dark: true },
-  dgray: { name: 'Dunkelgrau', sub: 'Esri Dark Gray – ruhig, Nodes stechen heraus', url: ESRI('Canvas/World_Dark_Gray_Base'), labels: ESRI('Canvas/World_Dark_Gray_Reference'), attr: ESRI_ATTR, native: 16, dark: true },
-  lgray: { name: 'Hellgrau', sub: 'Esri Light Gray – ruhig und hell', url: ESRI('Canvas/World_Light_Gray_Base'), labels: ESRI('Canvas/World_Light_Gray_Reference'), attr: ESRI_ATTR, native: 16 },
-  hot: { name: 'Humanitarian', sub: 'OpenStreetMap HOT – kräftige Farben', url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', attr: `${OSM_ATTR}, Stil: HOT`, sd: 'abc' },
-  sat: { name: 'Satellit', sub: 'Esri World Imagery', url: ESRI('World_Imagery'), attr: ESRI_ATTR, native: 18, dark: true },
-  topo: { name: 'Topografisch', sub: 'OpenTopoMap – Höhenlinien, gut für Funkstrecken', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: `${OSM_ATTR}, &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a>`, sd: 'abc', native: 17 },
+  auto: { name: T('ms.auto'), sub: T('ms.autoSub'), url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR, auto: true },
+  osm: { name: 'OpenStreetMap', sub: T('ms.osmSub'), url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR },
+  night: { name: T('ms.night'), sub: T('ms.nightSub'), url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: OSM_ATTR, invert: true, dark: true },
+  dgray: { name: T('ms.dgray'), sub: T('ms.dgraySub'), url: ESRI('Canvas/World_Dark_Gray_Base'), labels: ESRI('Canvas/World_Dark_Gray_Reference'), attr: ESRI_ATTR, native: 16, dark: true },
+  lgray: { name: T('ms.lgray'), sub: T('ms.lgraySub'), url: ESRI('Canvas/World_Light_Gray_Base'), labels: ESRI('Canvas/World_Light_Gray_Reference'), attr: ESRI_ATTR, native: 16 },
+  hot: { name: 'Humanitarian', sub: T('ms.hotSub'), url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', attr: `${OSM_ATTR}, ${T('ms.hotAttr')}`, sd: 'abc' },
+  sat: { name: T('ms.sat'), sub: 'Esri World Imagery', url: ESRI('World_Imagery'), attr: ESRI_ATTR, native: 18, dark: true },
+  topo: { name: T('ms.topo'), sub: T('ms.topoSub'), url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: `${OSM_ATTR}, &copy; <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a>`, sd: 'abc', native: 17 },
 };
 function applyMapStyle() {
   const L = window.L;
@@ -2074,10 +2106,10 @@ function applyMapStyle() {
 }
 function openMapStyle() {
   const cur = load('mapStyle', 'auto');
-  openSheet(`<div class="sheet-title">Kartenstil</div>
+  openSheet(`<div class="sheet-title">${T('map.style')}</div>
     ${Object.entries(MAP_STYLES).map(([k, st]) => `<button class="sheet-btn scope-opt ${k === cur ? 'active' : ''}" data-mapstyle="${k}"><span>${esc(st.name)}<small>${esc(st.sub)}</small></span>${k === cur ? `<i>${ICON.check}</i>` : ''}</button>`).join('')}
-    <div class="hint" style="padding:6px 12px">Gilt nur auf diesem Gerät. Die Kartenbilder lädt dein Gerät direkt vom jeweiligen Anbieter.</div>
-    <button class="sheet-btn cancel" data-close>Schließen</button>`, (e) => {
+    <div class="hint" style="padding:6px 12px">${T('map.styleHint')}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     const b = e.target.closest('[data-mapstyle]');
     if (!b) return;
     save('mapStyle', b.dataset.mapstyle);
@@ -2092,8 +2124,8 @@ function addMapTools() {
     options: { position: 'topright' },
     onAdd() {
       const box = L.DomUtil.create('div', 'leaflet-bar map-tools');
-      box.innerHTML = `<a href="#" role="button" data-mt="style" title="Kartenstil" aria-label="Kartenstil"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></a>
-        <a href="#" role="button" data-mt="full" title="Vollbild" aria-label="Vollbild"><svg viewBox="0 0 24 24" class="mt-open"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="mt-close"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></a>`;
+      box.innerHTML = `<a href="#" role="button" data-mt="style" title="${esc(T('map.style'))}" aria-label="${esc(T('map.style'))}"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></a>
+        <a href="#" role="button" data-mt="full" title="${esc(T('map.full'))}" aria-label="${esc(T('map.full'))}"><svg viewBox="0 0 24 24" class="mt-open"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="mt-close"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></a>`;
       L.DomEvent.disableClickPropagation(box);
       box.onclick = (e) => {
         const a = e.target.closest('[data-mt]');
@@ -2165,10 +2197,10 @@ async function initMap() {
 // Jedes gehörte Paket fliegt als Punkt vom Absender über die Repeater (soweit Position bekannt) zu dir.
 // Daten: Paket-Log von MeshMonitor über den MeshLink-Chat-Server (alle 3 s, nur solange Live an ist und die Karte offen).
 const LIVE_KINDS = {
-  ADVERT: ['#7b61ff', 'Advert'], GRP_TXT: ['#00a3a3', 'Kanal'], TXT_MSG: ['#e0482f', 'DM'], ACK: ['#8f9b96', 'ACK'],
-  PATH: ['#c99a00', 'Pfad'], TRACE: ['#ff4fa3', 'Trace'], REQ: ['#3a8fd6', 'Abfrage'], RESPONSE: ['#3a8fd6', 'Abfrage'], ANON_REQ: ['#3a8fd6', 'Abfrage'],
+  ADVERT: ['#7b61ff', T('pk.tAdvert')], GRP_TXT: ['#00a3a3', T('pk.tChannel')], TXT_MSG: ['#e0482f', 'DM'], ACK: ['#8f9b96', 'ACK'],
+  PATH: ['#c99a00', T('pk.tPath')], TRACE: ['#ff4fa3', 'Trace'], REQ: ['#3a8fd6', T('live.query')], RESPONSE: ['#3a8fd6', T('live.query')], ANON_REQ: ['#3a8fd6', T('live.query')],
 };
-const liveKind = (k) => LIVE_KINDS[k] || ['#6b7a74', 'Sonstige'];
+const liveKind = (k) => LIVE_KINDS[k] || ['#6b7a74', T('stats.typeOther')];
 S.live = { on: load('mapLive', false), after: 0, timer: null, active: 0, recent: [], noPos: 0 };
 
 function liveStart() {
@@ -2197,7 +2229,7 @@ async function livePoll() {
     const list = first ? [] : r.flights || [];
     const t0 = list.length ? list[0].t : 0;
     for (const f of list) setTimeout(() => { if (S.live.timer) liveFly(f); }, Math.min(2800, Math.max(0, f.t - t0)));
-  } catch (e) { S.live.err = e.status === 403 ? 'Keine Berechtigung für das Paket-Log' : e.message; }
+  } catch (e) { S.live.err = e.status === 403 ? T('live.noPerm') : e.message; }
   S.live.busy = false;
   drawLiveLegend();
 }
@@ -2326,19 +2358,19 @@ function liveHopName(h) {
 // Luftlinie. Stationen ohne Position werden übersprungen – dann ist es ein Mindestwert.
 function liveDistanceRows(f, row) {
   const me = mapPoint({ me: true });
-  if (!me) return row('Strecke', 'eigene Position unbekannt');
+  if (!me) return row(T('live.distance'), T('live.noOwnPos'));
   const stops = [liveOrigin(f), ...f.path.map((h) => mapPoint({ hash: h }))];
   const known = stops.filter((p) => p && p.lat != null);
   const missing = stops.length - known.length;
   const pts = [...known, me];
-  if (pts.length < 2) return row('Strecke', 'Positionen unbekannt');
+  if (pts.length < 2) return row(T('live.distance'), T('live.noPos'));
   let km = 0;
   for (let i = 1; i < pts.length; i++) km += distKm(pts[i - 1], pts[i]);
   const legs = pts.length - 1;
   const originOk = Boolean(stops[0] && stops[0].lat != null);
-  const main = `${missing ? 'mind. ' : ''}${fmtKm(km)} über ${legs} Funkstrecke${legs === 1 ? '' : 'n'}`;
-  const note = missing ? `<small class="lp-note">${missing} Station${missing === 1 ? '' : 'en'} ohne Position${originOk ? '' : ' (auch der Absender)'}</small>` : '';
-  return row('Strecke', `${esc(main)}${note}`) + (originOk && legs > 1 ? row('Luftlinie', esc(`${fmtKm(distKm(stops[0], me))} direkt zum Absender`)) : '');
+  const main = `${missing ? `${T('live.atLeast')} ` : ''}${T('live.legs', { n: legs, km: fmtKm(km) })}`;
+  const note = missing ? `<small class="lp-note">${esc(T('live.missing', { n: missing }))}${originOk ? '' : ` ${esc(T('live.alsoSender'))}`}</small>` : '';
+  return row(T('live.distance'), `${esc(main)}${note}`) + (originOk && legs > 1 ? row(T('live.airline'), esc(T('live.directToSender', { km: fmtKm(distKm(stops[0], me)) }))) : '');
 }
 function livePacketHtml(f) {
   const [color, label] = liveKind(f.kind);
@@ -2346,20 +2378,20 @@ function livePacketHtml(f) {
   let from = f.name || fromNode?.long || fromNode?.short || null;
   if (!from && f.src) { const n = liveOrigin(f); from = n ? n.long || n.short : `#${f.src}`; }
   const hops = f.hops ?? f.path.length;
-  const way = [from || 'unbekannt', ...f.path.map(liveHopName), 'Du'];
+  const way = [from || T('common.unknown'), ...f.path.map(liveHopName), T('common.you')];
   const ago = Math.max(0, Math.round((Date.now() - f.t) / 1000));
   const row = (k, v) => (v ? `<div class="lp-row"><span>${esc(k)}</span><b>${v}</b></div>` : '');
   const sig = [f.snr != null ? `SNR ${nf(f.snr, 1)} dB` : '', f.rssi != null ? `RSSI ${nf(f.rssi)} dBm` : ''].filter(Boolean).join(' · ');
-  const route = { FLOOD: 'Flood (an alle)', DIRECT: 'Direkt geroutet', TRANSPORT_FLOOD: 'Flood mit Scope', TRANSPORT_DIRECT: 'Direkt mit Scope' }[f.route] || f.route;
+  const route = { FLOOD: T('live.rFlood'), DIRECT: T('live.rDirect'), TRANSPORT_FLOOD: T('pk.rFloodScope'), TRANSPORT_DIRECT: T('pk.rDirectScope') }[f.route] || f.route;
   return `<div class="map-pop live-pkt">
-    <div class="lp-head"><i style="background:${color}"></i><b>${esc(label)}</b><small>${esc(f.kind || '')}</small><span>vor ${ago < 60 ? `${ago} s` : `${Math.round(ago / 60)} Min`}</span></div>
-    ${row('Von', esc(from || 'unbekannt'))}
-    ${row('Weg', way.map(esc).join(' › '))}
-    ${row('Hops', `${nf(hops)}${hops === 0 ? ' (direkt gehört)' : ''}${route ? ` · ${esc(route)}` : ''}`)}
+    <div class="lp-head"><i style="background:${color}"></i><b>${esc(label)}</b><small>${esc(f.kind || '')}</small><span>${ago < 60 ? T('live.agoS', { n: ago }) : T('live.agoMin', { n: Math.round(ago / 60) })}</span></div>
+    ${row(T('pk.rFrom'), esc(from || T('common.unknown')))}
+    ${row(T('pk.rPath'), way.map(esc).join(' › '))}
+    ${row('Hops', `${nf(hops)}${hops === 0 ? ` (${T('pk.heardDirect')})` : ''}${route ? ` · ${esc(route)}` : ''}`)}
     ${liveDistanceRows(f, row)}
-    ${row('Bei dir', esc(sig))}
-    ${row('Größe', f.size != null ? `${nf(f.size)} Bytes` : '')}
-    ${row('Zeit', esc(new Date(f.t).toLocaleTimeString('de-DE')))}
+    ${row(T('pk.rAtYou'), esc(sig))}
+    ${row(T('pk.rSize'), f.size != null ? esc(T('pk.nBytes', { n: nf(f.size) })) : '')}
+    ${row(T('live.time'), esc(new Date(f.t).toLocaleTimeString(LOC)))}
   </div>`;
 }
 function drawLiveLegend() {
@@ -2370,14 +2402,14 @@ function drawLiveLegend() {
   const n = S.live.recent.length;
   const seen = [...new Set(S.live.recent.map((x) => liveKind(x.kind)[1]))];
   const kinds = Object.values(LIVE_KINDS).filter(([, l], i, a) => a.findIndex(([, l2]) => l2 === l) === i);
-  el.innerHTML = `<span class="live-dot">⚡ <b>Live</b>&nbsp;${S.live.err ? `<em class="tb-err">${esc(S.live.err)}</em>` : `${nf(n)} Paket${n === 1 ? '' : 'e'}/Min${S.live.noPos ? ` · ${nf(S.live.noPos)} ohne Position` : ''}`}</span>${kinds.map(([c, l]) => `<span class="${seen.includes(l) ? '' : 'dim'}"><b class="lg-line" style="border-color:${c}"></b>${esc(l)}</span>`).join('')}`;
+  el.innerHTML = `<span class="live-dot">⚡ <b>Live</b>&nbsp;${S.live.err ? `<em class="tb-err">${esc(S.live.err)}</em>` : `${T('live.perMin', { n, num: nf(n) })}${S.live.noPos ? ` · ${T('live.noPosCount', { n: nf(S.live.noPos) })}` : ''}`}</span>${kinds.map(([c, l]) => `<span class="${seen.includes(l) ? '' : 'dim'}"><b class="lg-line" style="border-color:${c}"></b>${esc(l)}</span>`).join('')}`;
 }
 
 async function refreshMap(fit) {
   try {
     S.mapData = await api(`/api/map?days=${S.mapDays}`);
     drawMap(fit);
-  } catch (e) { const sub = $('#map-sub'); if (sub) sub.textContent = `Fehler: ${e.message}`; }
+  } catch (e) { const sub = $('#map-sub'); if (sub) sub.textContent = T('common.error', { msg: e.message }); }
 }
 
 // Position zu einem Punkt eines Wegs: Node-ID, Name oder Repeater-Hash (nur eindeutig)
@@ -2415,13 +2447,13 @@ function drawFocus() {
         // breite, unsichtbare Trefferlinie fürs Antippen; zeigt ein kleines Fenster statt eines Tooltips
         L.polyline([[c.lat, c.lon], [p.n.lat, p.n.lon]], { color: '#000', opacity: 0.001, weight: 18, bubblingMouseEvents: false })
           .on('click', (e) => L.popup({ className: 'live-pop', maxWidth: 260, autoPanPadding: [16, 16] }).setLatLng(e.latlng)
-            .setContent(p.pop ? p.pop(km) : `<div class="map-pop live-pkt"><div class="lp-head"><i style="background:${p.color || snrColor(p.snr)}"></i><b>${esc(p.label)}</b></div><div class="lp-row"><span>Entfernung</span><b>${esc(fmtKm(km))} Luftlinie</b></div></div>`).openOn(S.map))
+            .setContent(p.pop ? p.pop(km) : `<div class="map-pop live-pkt"><div class="lp-head"><i style="background:${p.color || snrColor(p.snr)}"></i><b>${esc(p.label)}</b></div><div class="lp-row"><span>${T('live.distanceLabel')}</span><b>${esc(T('stats.airline', { km: fmtKm(km) }))}</b></div></div>`).openOn(S.map))
           .addTo(S.focusLayer);
       }
       L.marker([c.lat, c.lon], { icon: L.divIcon({ className: 'focus-pin', html: '<span>★</span>', iconSize: [22, 22] }) }).bindTooltip(esc(f.center.label || '')).addTo(S.focusLayer);
     }
     bar.classList.remove('hidden');
-    bar.innerHTML = `<div><b>${esc(f.title)}</b><small>${c ? `${known.length} von ${leaves.length} ${f.note || 'Nachbarn mit Position · Farbe = SNR'}` : 'Repeater hat keine Position'}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="Ausblenden">${ICON.close}</button>`;
+    bar.innerHTML = `<div><b>${esc(f.title)}</b><small>${c ? `${T('focus.nOf', { k: known.length, n: leaves.length })} ${esc(f.note || T('focus.nbNote'))}` : T('focus.noPos')}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="${esc(T('focus.hide'))}">${ICON.close}</button>`;
     const pts = [...(c ? [[c.lat, c.lon]] : []), ...known.map((p) => [p.n.lat, p.n.lon])];
     return pts.length ? L.latLngBounds(pts) : null;
   }
@@ -2452,7 +2484,7 @@ function drawFocus() {
   });
   bar.classList.remove('hidden');
   const missing = pts.length - known.length;
-  bar.innerHTML = `<div><b>${esc(f.title)}${known.length > 1 ? ` · ${partial ? 'mind. ' : ''}${fmtKm(total)}` : ''}</b><small>${known.length} von ${pts.length} Stationen mit Position${missing ? ' · gestrichelt = Station ohne Position' : ''}${known.length > 1 ? ' · Luftlinie' : ''}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="Weg ausblenden">${ICON.close}</button>`;
+  bar.innerHTML = `<div><b>${esc(f.title)}${known.length > 1 ? ` · ${partial ? `${T('live.atLeast')} ` : ''}${fmtKm(total)}` : ''}</b><small>${T('focus.stations', { k: known.length, n: pts.length })}${missing ? ` · ${T('focus.dashed')}` : ''}${known.length > 1 ? ` · ${T('focus.airline')}` : ''}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="${esc(T('focus.hidePath'))}">${ICON.close}</button>`;
   return known.length ? L.latLngBounds(known.map((p) => [p.n.lat, p.n.lon])) : null;
 }
 
@@ -2461,10 +2493,10 @@ const TRACE_MAX = 8;
 function addTraceHop(n) {
   const tb = S.traceBuild;
   if (!tb || tb.busy) return;
-  if (n.local) { toast('Du bist automatisch Start und Ende'); return; }
-  if (n.type !== 2 && n.type !== 3) { toast('Nur Repeater und Room-Server leiten eine Traceroute weiter'); return; }
-  if (tb.hops.some((h) => h.id === n.id)) { toast('Ist schon im Pfad'); return; }
-  if (tb.hops.length >= TRACE_MAX) { toast(`Höchstens ${TRACE_MAX} Stationen`); return; }
+  if (n.local) { toast(T('trace.meAuto')); return; }
+  if (n.type !== 2 && n.type !== 3) { toast(T('trace.onlyRpt')); return; }
+  if (tb.hops.some((h) => h.id === n.id)) { toast(T('trace.dup')); return; }
+  if (tb.hops.length >= TRACE_MAX) { toast(T('trace.max', { n: TRACE_MAX })); return; }
   tb.hops.push({ id: n.id, label: n.long || n.short || n.id.slice(3, 11) });
   drawMap(false);
 }
@@ -2480,13 +2512,13 @@ function drawTraceBuild(bar) {
     if (p) L.marker([p.lat, p.lon], { icon: L.divIcon({ className: 'focus-pin', html: `<span>${i + 1}</span>`, iconSize: [22, 22] }), interactive: false }).addTo(S.focusLayer);
   });
   bar.classList.remove('hidden');
-  const chain = tb.hops.length ? `Du › ${tb.hops.map((h, i) => `${esc(h.label)}${i === tb.hops.length - 1 ? ' (Ziel)' : ''}`).join(' › ')}` : '';
+  const chain = tb.hops.length ? `${T('common.you')} › ${tb.hops.map((h, i) => `${esc(h.label)}${i === tb.hops.length - 1 ? ` ${T('trace.target')}` : ''}`).join(' › ')}` : '';
   const secs = tb.busy ? Math.round((Date.now() - tb.started) / 1000) : 0;
   const status = !tb.busy && tb.status ? `<small class="${tb.status.err ? 'tb-err' : ''}">${esc(tb.status.text)}</small>` : '';
-  bar.innerHTML = `<div><b>${tb.busy ? `Traceroute läuft … ${secs} s <span class="muted">(bis 60 s)</span>` : 'Eigene Traceroute'}</b><small>${chain || 'Repeater in der gewünschten Reihenfolge antippen – der letzte ist das Ziel. Die Trace läuft hin und zurück.'}</small>${status}</div>
-    ${tb.hops.length && !tb.busy ? `<button class="icon-btn" data-tb="undo" aria-label="Letzte Station entfernen">↶</button>` : ''}
-    ${!tb.busy ? `<button class="icon-btn" data-tb="cancel" aria-label="Abbrechen">${ICON.close}</button>` : ''}
-    <button class="pill primary-pill" data-tb="send" ${!tb.hops.length || tb.busy ? 'disabled' : ''}>Senden</button>`;
+  bar.innerHTML = `<div><b>${tb.busy ? `${T('trace.running', { s: secs })} <span class="muted">${T('trace.upTo')}</span>` : T('trace.own')}</b><small>${chain || T('trace.howto')}</small>${status}</div>
+    ${tb.hops.length && !tb.busy ? `<button class="icon-btn" data-tb="undo" aria-label="${esc(T('trace.undo'))}">↶</button>` : ''}
+    ${!tb.busy ? `<button class="icon-btn" data-tb="cancel" aria-label="${esc(T('common.cancel'))}">${ICON.close}</button>` : ''}
+    <button class="pill primary-pill" data-tb="send" ${!tb.hops.length || tb.busy ? 'disabled' : ''}>${T('common.send')}</button>`;
   return null;
 }
 
@@ -2501,12 +2533,12 @@ async function sendCustomTrace() {
     const r = await api('/api/node/trace-custom', { method: 'POST', body: { hops: tb.hops.map((h) => h.id) } });
     if (S.traceBuild !== tb) { clearInterval(tick); return; }
     if (!r.ok) {
-      finish({ err: true, text: `✘ Keine Antwort nach ${Math.round((r.ms || Date.now() - tb.started) / 1000)} s – eine Station hat die Trace nicht weitergegeben (zu weit, zu schwach oder aus). Pfad ändern und erneut senden.` });
+      finish({ err: true, text: `✘ ${T('trace.noAnswer', { s: Math.round((r.ms || Date.now() - tb.started) / 1000) })}` });
       return;
     }
     clearInterval(tick);
     // Teilstrecken: Du → Station 1 → … → Ziel → … → Du; SNR i = Empfang an Station i, lastSnr = Empfang bei dir
-    const seq = [{ me: true, key: 'me', label: 'Du' }, ...r.path.map((p) => ({ id: p.id, hash: p.hash, key: p.id || `#${p.hash}`, label: p.name || `#${p.hash}` })), { me: true, key: 'me', label: 'Du' }];
+    const seq = [{ me: true, key: 'me', label: T('common.you') }, ...r.path.map((p) => ({ id: p.id, hash: p.hash, key: p.id || `#${p.hash}`, label: p.name || `#${p.hash}` })), { me: true, key: 'me', label: T('common.you') }];
     const legs = new Map();
     for (let i = 0; i < seq.length - 1; i++) {
       const a = seq[i]; const b = seq[i + 1];
@@ -2517,15 +2549,15 @@ async function sendCustomTrace() {
       legs.set(k, leg);
     }
     S.traceBuild = null;
-    S.mapFocus = { kind: 'legs', title: `Traceroute ✔ zu ${tb.hops[tb.hops.length - 1].label} · ${nf((r.ms || 0) / 1000, 1)} s`, stations: [seq[0], ...tb.hops.map((h) => ({ id: h.id, label: h.label }))], legs: [...legs.values()] };
+    S.mapFocus = { kind: 'legs', title: T('trace.done', { name: tb.hops[tb.hops.length - 1].label, s: nf((r.ms || 0) / 1000, 1) }), stations: [seq[0], ...tb.hops.map((h) => ({ id: h.id, label: h.label }))], legs: [...legs.values()] };
     drawMap(false);
   } catch (e) {
     if (S.traceBuild !== tb) { clearInterval(tick); return; }
-    const text = e.code === 'NOT_A_CONTACT' ? e.message : e.code === 'TRACE_BUSY' ? 'Es läuft schon eine Traceroute – kurz warten.'
-      : e.status === 403 ? 'Keine Berechtigung – der Token-Benutzer braucht „traceroute: schreiben“ und „nodes: schreiben“.'
-        : e.code === 'MESHCORE_TRACE_FAILED' ? 'MeshMonitor konnte die Trace nicht senden (Companion getrennt oder Ziel ohne Pfad).'
-          : e.status === 429 ? 'Zu viele Gerätebefehle in kurzer Zeit – eine Minute warten.'
-            : `Fehler: ${e.message}`;
+    const text = e.code === 'NOT_A_CONTACT' ? e.message : e.code === 'TRACE_BUSY' ? T('trace.busy')
+      : e.status === 403 ? T('trace.noPerm')
+        : e.code === 'MESHCORE_TRACE_FAILED' ? T('trace.failed')
+          : e.status === 429 ? T('trace.tooMany')
+            : T('common.error', { msg: e.message });
     finish({ err: true, text: `✘ ${text}` });
   }
 }
@@ -2548,7 +2580,7 @@ function drawTraceLegs(bar, f) {
   });
   const missing = f.legs.filter((l) => !mapPoint(l.a) || !mapPoint(l.b)).length;
   bar.classList.remove('hidden');
-  bar.innerHTML = `<div><b>${esc(f.title)}</b><small>→ hin · ← zurück (SNR beim Empfang) · Farbe = schwächere Richtung${missing ? ` · ${missing} Strecke(n) ohne Position` : ''}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="Ausblenden">${ICON.close}</button>`;
+  bar.innerHTML = `<div><b>${esc(f.title)}</b><small>${T('trace.legsNote')}${missing ? ` · ${T('trace.legsMissing', { n: missing })}` : ''}</small></div>${focusAllBtn()}<button class="icon-btn" data-close-focus aria-label="${esc(T('focus.hide'))}">${ICON.close}</button>`;
   return all.length ? L.latLngBounds(all) : null;
 }
 
@@ -2570,9 +2602,9 @@ function compass(a, b) {
   const rad = Math.PI / 180;
   const y = Math.sin((b.lon - a.lon) * rad) * Math.cos(b.lat * rad);
   const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lon - a.lon) * rad);
-  return ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'][Math.round((((Math.atan2(y, x) / rad) + 360) % 360) / 45) % 8];
+  return T('map.compass').split(' ')[Math.round((((Math.atan2(y, x) / rad) + 360) % 360) / 45) % 8];
 }
-const fmtKm = (km) => `${km < 1 ? km.toLocaleString('de-DE', { maximumFractionDigits: 2 }) : km.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`;
+const fmtKm = (km) => `${km < 1 ? km.toLocaleString(LOC, { maximumFractionDigits: 2 }) : km.toLocaleString(LOC, { maximumFractionDigits: 1 })} km`;
 
 const snrColor = (v) => (v == null ? '#888' : v >= 5 ? '#1f9d6b' : v >= -5 ? '#d9a12b' : '#c8372d');
 
@@ -2624,9 +2656,9 @@ function drawMap(fit) {
         : { color: '#1f6f5c', weight: base * sc.line, opacity: 0.55 });
     S.mapLines.push([pl, base]);
     pl
-      .bindTooltip(direct ? `${esc(l.bn)} · direkt gehört${l.snr != null ? ` · SNR ${esc(l.snr)}` : ''}`
-        : nb ? `${esc(l.an)} ↔ ${esc(l.bn)} · Repeater-Nachbarn${l.snr != null ? ` · SNR ${esc(l.snr)}` : ''}`
-          : `${esc(l.an)} ↔ ${esc(l.bn)} · ${l.n}× im Weg einer Nachricht`, { sticky: true })
+      .bindTooltip(direct ? `${esc(l.bn)} · ${T('pk.heardDirect')}${l.snr != null ? ` · SNR ${esc(l.snr)}` : ''}`
+        : nb ? `${esc(l.an)} ↔ ${esc(l.bn)} · ${T('map.lgNb')}${l.snr != null ? ` · SNR ${esc(l.snr)}` : ''}`
+          : `${esc(l.an)} ↔ ${esc(l.bn)} · ${T('map.ttSeen', { n: l.n })}`, { sticky: true })
       .addTo(S.linkLayer);
   }
   // Nodes
@@ -2646,20 +2678,21 @@ function drawMap(fit) {
       continue;
     }
     mk.bindPopup(`<div class="map-pop"><b>${n.fav ? '★ ' : ''}${esc(name)}</b>
-      <div>${n.local ? 'Dein Node' : t ? `${t.icon} ${esc(t.label)}` : 'Node'}</div>
-      <div class="muted">zuletzt gehört ${esc(ago(n.lastHeard))}${n.hops != null ? ` · ${n.hops} Hops` : ''}${n.snr != null ? ` · SNR ${esc(n.snr)}` : ''}</div>
-      ${!n.local && meNode ? `<div class="muted">📍 ${fmtKm(distKm(meNode, n))} ${compass(meNode, n)} von dir (Luftlinie)</div>` : ''}
-      ${!n.local && canDm(n) ? `<button class="map-dm" data-map-dm="${esc(n.id)}">Nachricht senden</button>` : ''}
-      ${!n.local ? `<button class="map-dm map-sec" data-map-node="${esc(n.id)}">Details &amp; Status</button>` : ''}</div>`);
+      <div>${n.local ? T('map.yourNode') : t ? `${t.icon} ${esc(t.label)}` : 'Node'}</div>
+      <div class="muted">${T('chat.lastHeard', { ago: esc(ago(n.lastHeard)) })}${n.hops != null ? ` · ${T('common.hops', { n: n.hops })}` : ''}${n.snr != null ? ` · SNR ${esc(n.snr)}` : ''}</div>
+      ${!n.local && meNode ? `<div class="muted">📍 ${T('map.fromYou', { km: fmtKm(distKm(meNode, n)), dir: compass(meNode, n) })}</div>` : ''}
+      ${!n.local && canDm(n) ? `<button class="map-dm" data-map-dm="${esc(n.id)}">${T('contact.send')}</button>` : ''}
+      ${!n.local ? `<button class="map-dm map-sec" data-map-node="${esc(n.id)}">${T('map.detailsStatus')}</button>` : ''}</div>`);
     mk.bindTooltip(esc(name), { direction: 'top', offset: [0, -6] });
     mk.addTo(S.mapLayer);
   }
   const fb = drawFocus();
   const sub = $('#map-sub');
-  if (sub) sub.textContent = focusOnly ? `${list.filter((n) => !n.local).length} beteiligte Nodes · übrige ausgeblendet` : `${list.filter((n) => !n.local).length} Nodes mit Position${noPos ? ` · ${noPos} ohne` : ''}${links.length ? ` · ${links.length} Verbindungen` : ''}`;
+  const shown = list.filter((n) => !n.local).length;
+  if (sub) sub.textContent = focusOnly ? T('map.focusSub', { n: shown }) : `${T('map.nodesPos', { n: shown })}${noPos ? ` · ${T('map.noPos', { n: noPos })}` : ''}${links.length ? ` · ${T('map.linksN', { n: links.length })}` : ''}`;
   if (fb) S.map.fitBounds(fb.pad(0.25), { maxZoom: 14 });
   else if (fit && list.length) S.map.fitBounds(L.latLngBounds(list.map((n) => [n.lat, n.lon])), { padding: [30, 30], maxZoom: 13 });
-  if (S.mapFocus && !fb) toast('Für diesen Weg ist keine Position bekannt');
+  if (S.mapFocus && !fb) toast(T('map.noPosPath'));
 }
 
 const FOCUS_LINE = 3; // alle Fokus-Linien (Weg, Reach, Nachbarn, Traceroute) gleich stark
@@ -2674,7 +2707,7 @@ function focusNodeIds(f) {
   (f.legs || []).forEach((l) => { add(l.a); add(l.b); });
   return ids;
 }
-const focusAllBtn = () => `<button class="pill focus-all ${S.mapFocusAll ? 'on' : ''}" data-focus-all title="Übrige Nodes, Linien und Live ein-/ausblenden">${S.mapFocusAll ? 'Nur Auswahl' : 'Alle Nodes'}</button>`;
+const focusAllBtn = () => `<button class="pill focus-all ${S.mapFocusAll ? 'on' : ''}" data-focus-all title="${esc(T('focus.allTitle'))}">${S.mapFocusAll ? T('focus.onlySel') : T('focus.allNodes')}</button>`;
 
 // Weg auf der Karte zeigen (aus Nachricht, Traceroute oder einzelner Node)
 function showOnMap(focus) {
@@ -2687,38 +2720,38 @@ function showOnMap(focus) {
 // ------------------------------------------------------------------ Node-Details: Status, Verlauf, Traceroute
 
 const STATUS_FIELDS = [
-  ['status_battery_volts', 'Akku', (v) => `${v.toFixed(2)} V`],
-  ['battery_volts', 'Akku', (v) => `${v.toFixed(2)} V`],
-  ['status_uptime_secs', 'Laufzeit', (v) => dur(v)],
-  ['status_noise_floor', 'Rauschpegel', (v) => `${fmtNum(v)} dB`],
-  ['status_last_rssi', 'Letzter RSSI', (v) => `${fmtNum(v)} dBm`],
-  ['status_last_snr', 'Letzter SNR', (v) => `${fmtNum(v)} dB`],
-  ['status_air_time_secs', 'Sendezeit gesamt', (v) => dur(v)],
-  ['status_rx_air_time_secs', 'Empfangszeit gesamt', (v) => dur(v)],
-  ['status_packets_recv', 'Pakete empfangen', (v) => v.toLocaleString('de-DE')],
-  ['status_packets_sent', 'Pakete gesendet', (v) => v.toLocaleString('de-DE')],
-  ['status_recv_flood', 'Empfangen Flood', (v) => v.toLocaleString('de-DE')],
-  ['status_recv_direct', 'Empfangen Direkt', (v) => v.toLocaleString('de-DE')],
-  ['status_sent_flood', 'Gesendet Flood', (v) => v.toLocaleString('de-DE')],
-  ['status_sent_direct', 'Gesendet Direkt', (v) => v.toLocaleString('de-DE')],
-  ['status_flood_dups', 'Duplikate Flood', (v) => v.toLocaleString('de-DE')],
-  ['status_direct_dups', 'Duplikate Direkt', (v) => v.toLocaleString('de-DE')],
-  ['status_queue_len', 'Warteschlange', (v) => String(v)],
-  ['status_errors', 'Fehler', (v) => String(v)],
-  ['status_recv_errors', 'Empfangsfehler', (v) => String(v)],
+  ['status_battery_volts', T('node.battery'), (v) => `${v.toFixed(2)} V`],
+  ['battery_volts', T('node.battery'), (v) => `${v.toFixed(2)} V`],
+  ['status_uptime_secs', T('node.uptime'), (v) => dur(v)],
+  ['status_noise_floor', T('node.noise'), (v) => `${fmtNum(v)} dB`],
+  ['status_last_rssi', T('node.lastRssi'), (v) => `${fmtNum(v)} dBm`],
+  ['status_last_snr', T('node.lastSnr'), (v) => `${fmtNum(v)} dB`],
+  ['status_air_time_secs', T('node.airTx'), (v) => dur(v)],
+  ['status_rx_air_time_secs', T('node.airRx'), (v) => dur(v)],
+  ['status_packets_recv', T('node.pkRecv'), (v) => v.toLocaleString(LOC)],
+  ['status_packets_sent', T('node.pkSent'), (v) => v.toLocaleString(LOC)],
+  ['status_recv_flood', T('node.recvFlood'), (v) => v.toLocaleString(LOC)],
+  ['status_recv_direct', T('node.recvDirect'), (v) => v.toLocaleString(LOC)],
+  ['status_sent_flood', T('node.sentFlood'), (v) => v.toLocaleString(LOC)],
+  ['status_sent_direct', T('node.sentDirect'), (v) => v.toLocaleString(LOC)],
+  ['status_flood_dups', T('node.dupFlood'), (v) => v.toLocaleString(LOC)],
+  ['status_direct_dups', T('node.dupDirect'), (v) => v.toLocaleString(LOC)],
+  ['status_queue_len', T('node.queue'), (v) => String(v)],
+  ['status_errors', T('node.errors'), (v) => String(v)],
+  ['status_recv_errors', T('node.recvErrors'), (v) => String(v)],
 ];
-const STATUS_CHARTS = [['status_battery_volts', 'Akku', 'V'], ['battery_volts', 'Akku', 'V'], ['status_noise_floor', 'Rauschpegel', 'dB'], ['status_last_snr', 'Letzter SNR', 'dB'], ['status_packets_recv', 'Pakete empfangen', '']];
-const NODE_RANGES = [[1, '24 h'], [7, '7 Tage'], [30, '30 Tage']];
+const STATUS_CHARTS = [['status_battery_volts', T('node.battery'), 'V'], ['battery_volts', T('node.battery'), 'V'], ['status_noise_floor', T('node.noise'), 'dB'], ['status_last_snr', T('node.lastSnr'), 'dB'], ['status_packets_recv', T('node.pkRecv'), '']];
+const NODE_RANGES = [[1, '24 h'], [7, T('common.days', { n: 7 })], [30, T('common.days', { n: 30 })]];
 
 function dur(sec) {
   const s = Math.max(0, Math.round(sec));
   const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
-  return d ? `${d} T ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+  return d ? T('dur.dh', { d, h }) : h ? `${h} h ${m} min` : `${m} min`;
 }
-function fmtNum(v) { return Math.abs(v) >= 100 ? Math.round(v).toLocaleString('de-DE') : (Math.round(v * 100) / 100).toLocaleString('de-DE'); }
+function fmtNum(v) { return Math.abs(v) >= 100 ? Math.round(v).toLocaleString(LOC) : (Math.round(v * 100) / 100).toLocaleString(LOC); }
 
 function sparkline(points) {
-  if (!points || points.length < 2) return '<div class="muted spark-empty">Zu wenig Werte</div>';
+  if (!points || points.length < 2) return `<div class="muted spark-empty">${T('node.fewValues')}</div>`;
   const xs = points.map((p) => p[0]); const ys = points.map((p) => p[1]);
   const x0 = Math.min(...xs); const x1 = Math.max(...xs); let y0 = Math.min(...ys); let y1 = Math.max(...ys);
   if (y0 === y1) { y0 -= 1; y1 += 1; }
@@ -2728,11 +2761,11 @@ function sparkline(points) {
 }
 
 function permHint(e, perm) {
-  if (e.status === 403) return `Keine Berechtigung – der MeshMonitor-Benutzer des Tokens braucht das Recht „${perm}“ für diese Quelle.`;
-  if (e.status === 429) return `Zu kurz nach der letzten Funk-Aussendung – in ${e.retryAfter || 60} s nochmal versuchen.`;
-  if (e.code === 'TX_DISABLED') return 'Senden ist für diese Quelle in MeshMonitor gesperrt (Nur-Empfang).';
-  if (e.code === 'MESHCORE_TRACE_FAILED') return 'Traceroute nicht möglich: Der Node ist kein bekannter Kontakt deines Companions.';
-  if (e.status === 503) return 'Die Quelle ist gerade nicht mit MeshMonitor verbunden.';
+  if (e.status === 403) return T('perm.noPerm', { perm });
+  if (e.status === 429) return T('perm.tooSoon', { s: e.retryAfter || 60 });
+  if (e.code === 'TX_DISABLED') return T('perm.txDisabled');
+  if (e.code === 'MESHCORE_TRACE_FAILED') return T('perm.traceFailed');
+  if (e.status === 503) return T('perm.notConnected');
   return e.message;
 }
 
@@ -2745,7 +2778,7 @@ function renderNode() {
   app.innerHTML = `
     <div class="view view-node">
       <header class="bar">
-        <button class="icon-btn" id="back" aria-label="Zurück">${ICON.back}</button>
+        <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         ${avatar('dm:' + id, 'small')}
         <div class="bar-title"><h2 id="node-title"></h2><div class="sub" id="node-sub"></div></div>
       </header>
@@ -2768,7 +2801,7 @@ function renderNodeBody() {
   const n = node(ni.id) || { id: ni.id };
   const t = typeOf(n);
   $('#node-title').textContent = n.long || n.short || n.id;
-  $('#node-sub').textContent = `${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ' · ★ Favorit' : ''}`;
+  $('#node-sub').textContent = `${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}`;
   const row = (k, v) => (v == null || v === '' ? '' : `<div class="info-row"><span>${k}</span><b>${esc(v)}</b></div>`);
   const kind = nodeKind(n);
   const series = ni.series || {};
@@ -2781,66 +2814,66 @@ function renderNodeBody() {
   const traces = ni.traces || [];
   $('#node-body').innerHTML = `
     <section class="card">
-      ${row('Zuletzt gehört', n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString('de-DE')})` : null)}
+      ${row(T('node.lastHeard'), n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString(LOC)})` : null)}
       ${row('Hops', n.hops)}
       ${row('SNR', n.snr)}
       ${row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
       <div class="node-actions">
-        ${canDm(n) ? '<button class="pill" data-na="dm">💬 Nachricht</button>' : ''}
-        <button class="pill" data-na="map">🗺️ Auf Karte</button>
-        ${S.source?.protocol === 'meshcore' ? `<button class="pill" data-na="fav">${n.fav ? '★ Favorit' : '☆ Favorit'}</button>` : ''}
+        ${canDm(n) ? `<button class="pill" data-na="dm">${T('node.msgBtn')}</button>` : ''}
+        <button class="pill" data-na="map">${T('node.mapBtn')}</button>
+        ${S.source?.protocol === 'meshcore' ? `<button class="pill" data-na="fav">${n.fav ? '★' : '☆'} ${T('fav.label')}</button>` : ''}
       </div>
     </section>
     ${kind ? `
     <section class="card">
-      <div class="card-head"><b>${kind === 'lpp' ? 'Sensorwerte' : 'Status'}</b>${lastTs ? `<small>Stand ${esc(ago(lastTs))}</small>` : ''}</div>
-      ${latest.length ? `<div class="stat-grid">${latest.map(([k, label, f]) => `<div><small>${esc(label)}</small><b>${esc(f(series[k].last[1]))}</b></div>`).join('')}</div>` : ni.series ? '<div class="muted">Noch keine Werte in MeshMonitor.</div>' : '<div class="muted">Lade …</div>'}
+      <div class="card-head"><b>${kind === 'lpp' ? T('node.sensors') : 'Status'}</b>${lastTs ? `<small>${T('node.asOf', { ago: esc(ago(lastTs)) })}</small>` : ''}</div>
+      ${latest.length ? `<div class="stat-grid">${latest.map(([k, label, f]) => `<div><small>${esc(label)}</small><b>${esc(f(series[k].last[1]))}</b></div>`).join('')}</div>` : ni.series ? `<div class="muted">${T('node.noValues')}</div>` : `<div class="muted">${T('common.loading')}</div>`}
       ${kind === 'lpp' && !latest.length && charts.length ? `<div class="stat-grid">${charts.map(([k, label, u]) => `<div><small>${esc(label)}</small><b>${esc(fmtNum(series[k].last[1]))} ${esc(u)}</b></div>`).join('')}</div>` : ''}
-      <button class="sheet-btn primary" data-na="status" ${ni.busy === 'status' ? 'disabled' : ''}>${ni.busy === 'status' ? 'Frage ab … (bis 60 s)' : kind === 'lpp' ? 'Sensorwerte jetzt abfragen' : 'Status jetzt abfragen'}</button>
+      <button class="sheet-btn primary" data-na="status" ${ni.busy === 'status' ? 'disabled' : ''}>${ni.busy === 'status' ? T('node.querying') : kind === 'lpp' ? T('node.querySensors') : T('node.queryStatus')}</button>
       ${msg('status')}
-      <div class="hint">Sendet eine Anfrage über Funk. MeshMonitor erlaubt das höchstens 1× pro Minute.</div>
+      <div class="hint">${T('node.queryHint')}</div>
     </section>` : ''}
     ${charts.length || kind ? `
     <section class="card">
-      <div class="card-head"><b>Verlauf</b><span class="mini-segs">${NODE_RANGES.map(([d, l]) => `<button class="seg ${ni.days === d ? 'active' : ''}" data-nd="${d}">${l}</button>`).join('')}</span></div>
+      <div class="card-head"><b>${T('node.history')}</b><span class="mini-segs">${NODE_RANGES.map(([d, l]) => `<button class="seg ${ni.days === d ? 'active' : ''}" data-nd="${d}">${l}</button>`).join('')}</span></div>
       ${charts.length ? charts.map(([k, label, u]) => {
         const s = series[k]; const ys = s.points.map((p) => p[1]);
         return `<div class="chart"><div class="chart-head"><span>${esc(label)}</span><small>${esc(fmtNum(Math.min(...ys)))} – ${esc(fmtNum(Math.max(...ys)))} ${esc(u)}</small></div>${sparkline(s.points)}</div>`;
-      }).join('') : `<div class="muted">${ni.series ? 'Keine Werte in diesem Zeitraum.' : 'Lade …'}</div>`}
+      }).join('') : `<div class="muted">${ni.series ? T('node.noValuesRange') : T('common.loading')}</div>`}
       ${msg('tele')}
     </section>` : ''}
     <section class="card">
-      <div class="card-head"><b>Route prüfen</b></div>
-      <button class="sheet-btn" data-na="trace" ${ni.busy === 'trace' ? 'disabled' : ''}>${ni.busy === 'trace' ? 'Traceroute läuft … (bis 45 s)' : 'Traceroute starten'}</button>
+      <div class="card-head"><b>${T('node.checkRoute')}</b></div>
+      <button class="sheet-btn" data-na="trace" ${ni.busy === 'trace' ? 'disabled' : ''}>${ni.busy === 'trace' ? T('node.traceRunning') : T('node.traceStart')}</button>
       ${msg('trace')}
       ${traces.map((tr, i) => `
         <div class="trace">
-          <div class="trace-head"><span>${esc(ago(tr.ts))}</span><button class="pill" data-trace-map="${i}">Auf Karte</button></div>
-          <div class="trace-path"><span>Du</span>${tr.hops.map((h) => `<span>›</span><span>${esc(h.name || `#${h.hash}`)}${traceSnr(h) ? `<small> ${esc(traceSnr(h))}</small>` : ''}</span>`).join('')}</div>
-        </div>`).join('') || (ni.traces ? '<div class="muted">Noch keine Traceroute zu diesem Node.</div>' : '')}
-      <div class="hint">Zeigt den Weg von dir zum Node, mit SNR je Station (→ hin, ← zurück, falls der Rückweg aufgezeichnet ist). Ergebnisse speichert MeshMonitor.</div>
+          <div class="trace-head"><span>${esc(ago(tr.ts))}</span><button class="pill" data-trace-map="${i}">${T('node.onMap')}</button></div>
+          <div class="trace-path"><span>${T('common.you')}</span>${tr.hops.map((h) => `<span>›</span><span>${esc(h.name || `#${h.hash}`)}${traceSnr(h) ? `<small> ${esc(traceSnr(h))}</small>` : ''}</span>`).join('')}</div>
+        </div>`).join('') || (ni.traces ? `<div class="muted">${T('node.noTrace')}</div>` : '')}
+      <div class="hint">${T('node.traceHint')}</div>
     </section>
     <section class="card">
-      <div class="card-head"><b>Verbindung</b></div>
-      <div class="info-row"><span>Gespeicherter Pfad</span><b>${ni.contact == null ? 'Lade …' : !ni.contact.known ? 'kein Kontakt im Companion' : ni.contact.flood ? 'keiner (Flood)' : ni.contact.hops.length ? esc(ni.contact.hops.map((h) => h.name || `#${h.hash}`).join(' › ')) : 'direkt'}</b></div>
+      <div class="card-head"><b>${T('node.connection')}</b></div>
+      <div class="info-row"><span>${T('node.storedPath')}</span><b>${ni.contact == null ? T('common.loading') : !ni.contact.known ? T('node.noContact') : ni.contact.flood ? T('node.noPathFlood') : ni.contact.hops.length ? esc(ni.contact.hops.map((h) => h.name || `#${h.hash}`).join(' › ')) : T('common.direct')}</b></div>
       <div class="node-actions">
-        <button class="pill" data-na="ping" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'ping' ? 'Pinge …' : '📶 Direkt-Ping'}</button>
-        <button class="pill" data-na="reset" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'reset' ? 'Setze zurück …' : '🔄 Pfad zurücksetzen'}</button>
-        <button class="pill" data-na="discover" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'discover' ? 'Suche Pfad …' : '🧭 Pfad neu suchen'}</button>
+        <button class="pill" data-na="ping" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'ping' ? T('node.pinging') : T('node.ping')}</button>
+        <button class="pill" data-na="reset" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'reset' ? T('node.resetting') : T('node.reset')}</button>
+        <button class="pill" data-na="discover" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'discover' ? T('node.discovering') : T('node.discover')}</button>
       </div>
       ${msg('conn')}
-      <div class="hint">Kommen DMs nicht mehr an, hilft oft „Pfad zurücksetzen“: Die nächste Nachricht sucht sich den Weg dann neu. Der Direkt-Ping prüft, ob der Node dich ohne Repeater hört.</div>
+      <div class="hint">${T('node.connHint')}</div>
     </section>
     ${n.type === 2 || n.type === 3 ? `
     <section class="card">
-      <div class="card-head"><b>Nachbarn dieses Repeaters</b>${ni.nb?.ts ? `<small>Stand ${esc(ago(ni.nb.ts))}</small>` : ''}</div>
-      ${ni.nb == null ? '<div class="muted">Lade …</div>' : ni.nb.neighbours.length ? ni.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : '<div class="muted">Keine gespeicherte Nachbar-Tabelle.</div>'}
+      <div class="card-head"><b>${T('node.nbTitle')}</b>${ni.nb?.ts ? `<small>${T('node.asOf', { ago: esc(ago(ni.nb.ts)) })}</small>` : ''}</div>
+      ${ni.nb == null ? `<div class="muted">${T('common.loading')}</div>` : ni.nb.neighbours.length ? ni.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : `<div class="muted">${T('node.nbNone')}</div>`}
       <div class="node-actions">
-        <button class="pill" data-na="nb" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'nb' ? 'Frage ab … (bis 60 s)' : '📡 Jetzt abfragen'}</button>
-        ${ni.nb?.neighbours?.length ? '<button class="pill" data-na="nbmap">🗺️ Auf Karte</button>' : ''}
+        <button class="pill" data-na="nb" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'nb' ? T('node.querying') : T('node.nbQuery')}</button>
+        ${ni.nb?.neighbours?.length ? `<button class="pill" data-na="nbmap">${T('node.mapBtn')}</button>` : ''}
       </div>
       ${msg('nb')}
-      <div class="hint">Welche Nodes dieser Repeater selbst hört (stärkste zuerst). Abfragen sendet über Funk; ältere Repeater-Firmware antwortet evtl. nicht.</div>
+      <div class="hint">${T('node.nbHint')}</div>
     </section>
     ${S.source?.protocol === 'meshcore' ? reachCard(ni) : ''}` : ''}`;
 }
@@ -2850,38 +2883,38 @@ const REACH_SHOW = 8;
 function reachCard(ni) {
   const r = ni.reach;
   const list = (rows, kind) => {
-    if (!rows.length) return '<div class="muted">Nichts gefunden.</div>';
+    if (!rows.length) return `<div class="muted">${T('reach.nothing')}</div>`;
     const all = ni.reachAll?.[kind];
     const max = Math.max(...rows.map((x) => x.n));
     return rows.slice(0, all ? rows.length : REACH_SHOW).map((x) => {
-      const label = x.me ? 'Du' : x.name || `#${x.hash}${x.amb ? '?' : ''}`;
-      const sub = [x.origin ? 'als Absender' : '', x.amb ? `${x.amb} mögliche Nodes` : !x.name && !x.me ? 'unbekannt' : ''].filter(Boolean).join(' · ');
+      const label = x.me ? T('common.you') : x.name || `#${x.hash}${x.amb ? '?' : ''}`;
+      const sub = [x.origin ? T('reach.asSender') : '', x.amb ? T('reach.amb', { n: x.amb }) : !x.name && !x.me ? T('common.unknown') : ''].filter(Boolean).join(' · ');
       return `<button class="reach-row" ${x.id && !x.me ? `data-reach-node="${esc(x.id)}"` : 'disabled'}>
         <span class="reach-name">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
         <span class="reach-bar"><i style="width:${Math.max(6, (x.n / max) * 100)}%"></i></span>
         <span class="reach-n">${nf(x.n)}×<small>${esc(ago(x.last))}</small></span>
       </button>`;
-    }).join('') + (rows.length > REACH_SHOW ? `<button class="route-map" data-reach-all="${kind}">${all ? 'Weniger zeigen' : `Alle ${rows.length} zeigen`}</button>` : '');
+    }).join('') + (rows.length > REACH_SHOW ? `<button class="route-map" data-reach-all="${kind}">${all ? T('reach.less') : T('reach.all', { n: rows.length })}</button>` : '');
   };
   let body;
-  if (r == null) body = '<div class="muted">Werte Pakete aus …</div>';
+  if (r == null) body = `<div class="muted">${T('reach.working')}</div>`;
   else if (r.err) body = `<div class="node-msg err">${esc(r.err)}</div>`;
-  else if (!r.packets) body = '<div class="muted">Kein Flood-Paket über diesen Repeater im Paket-Log.</div>';
+  else if (!r.packets) body = `<div class="muted">${T('reach.none')}</div>`;
   else body = `
-      <div class="reach-sum">Aus ${nf(r.packets)} Paket${r.packets === 1 ? '' : 'en'} über diesen Repeater${r.since ? `, ältestes ${esc(ago(r.since))}` : ''}</div>
-      <div class="reach-head">← Hört direkt <small>${r.hears.length}</small></div>
+      <div class="reach-sum">${T('reach.sum', { n: r.packets, num: nf(r.packets) })}${r.since ? `, ${T('reach.oldest', { ago: esc(ago(r.since)) })}` : ''}</div>
+      <div class="reach-head">${T('reach.hears')} <small>${r.hears.length}</small></div>
       ${list(r.hears, 'hears')}
-      <div class="reach-head">→ Wird direkt gehört von <small>${r.reaches.length}</small></div>
+      <div class="reach-head">${T('reach.reaches')} <small>${r.reaches.length}</small></div>
       ${list(r.reaches, 'reaches')}`;
   return `
     <section class="card">
-      <div class="card-head"><b>Reach aus Paketen</b><small>experimentell</small></div>
+      <div class="card-head"><b>${T('reach.title')}</b><small>${T('reach.exp')}</small></div>
       ${body}
       <div class="node-actions">
-        ${r?.packets ? '<button class="pill" data-na="reachmap">🗺️ Auf Karte</button>' : ''}
-        <button class="pill" data-na="reach" ${r == null ? 'disabled' : ''}>↻ Neu auswerten</button>
+        ${r?.packets ? `<button class="pill" data-na="reachmap">${T('node.mapBtn')}</button>` : ''}
+        <button class="pill" data-na="reach" ${r == null ? 'disabled' : ''}>${T('reach.redo')}</button>
       </div>
-      <div class="hint">Aus den Wegen der Pakete, die dein Companion empfangen hat: Steht im Weg „A › dieser › B“, hat er A gehört und B ihn. Sichtbar sind nur Verbindungen auf Wegen, die bei dir enden – entfernte Nachbarn fehlen oft. „?“ = Kennung passt zu mehreren Nodes. Zählt nur Flood-Pakete; nichts wird gespeichert.</div>
+      <div class="hint">${T('reach.hint')}</div>
     </section>`;
 }
 async function loadReach() {
@@ -2891,7 +2924,7 @@ async function loadReach() {
   try {
     const r = await api(`/api/node/reach?id=${encodeURIComponent(ni.id)}`);
     if (S.ni !== ni) return;
-    ni.reach = r.unsupported ? { err: 'Nur für MeshCore.' } : r;
+    ni.reach = r.unsupported ? { err: T('reach.mcOnly') } : r;
   } catch (e) {
     if (S.ni !== ni) return;
     ni.reach = { err: permHint(e, 'packetmonitor:read') };
@@ -2904,28 +2937,28 @@ function reachMap(ni, n) {
   const put = (x, dir) => {
     if (!x.me && !x.id && x.amb) return; // mehrdeutig: keine Position raten
     const k = x.me ? 'me' : x.id || `#${x.hash}`;
-    const e = m.get(k) || (x.me ? { me: true, label: 'Du' } : { id: x.id, hash: x.id ? null : x.hash, label: x.name || `#${x.hash}` });
+    const e = m.get(k) || (x.me ? { me: true, label: T('common.you') } : { id: x.id, hash: x.id ? null : x.hash, label: x.name || `#${x.hash}` });
     e[dir] = (e[dir] || 0) + x.n;
     e[`${dir}Last`] = Math.max(e[`${dir}Last`] || 0, x.last || 0);
     m.set(k, e);
   };
   r.hears.forEach((x) => put(x, 'in'));
   r.reaches.forEach((x) => put(x, 'out'));
-  const me = n.long || n.short || 'Repeater';
+  const me = n.long || n.short || T('type.repeater');
   const leaves = [...m.values()].map((e) => {
     const color = e.in && e.out ? '#2e9d5b' : e.in ? '#3a8fd6' : '#d9822b';
-    const cnt = (v, last) => (v ? `${nf(v)}×<small class="lp-note">zuletzt ${esc(ago(last))}</small>` : '<span class="muted">nicht gesehen</span>');
+    const cnt = (v, last) => (v ? `${nf(v)}×<small class="lp-note">${T('reach.last', { ago: esc(ago(last)) })}</small>` : `<span class="muted">${T('reach.notSeen')}</span>`);
     return {
       ...e, color,
       pop: (km) => `<div class="map-pop live-pkt">
-        <div class="lp-head"><i style="background:${color}"></i><b>${esc(e.label)}</b><small>${e.in && e.out ? 'gegenseitig' : ''}</small></div>
-        <div class="lp-row reach-pop"><span>${esc(me)} hört ${esc(e.label)}</span><b>${cnt(e.in, e.inLast)}</b></div>
-        <div class="lp-row reach-pop"><span>${esc(e.label)} hört ${esc(me)}</span><b>${cnt(e.out, e.outLast)}</b></div>
-        <div class="lp-row reach-pop"><span>Entfernung</span><b>${esc(fmtKm(km))} Luftlinie</b></div>
+        <div class="lp-head"><i style="background:${color}"></i><b>${esc(e.label)}</b><small>${e.in && e.out ? T('reach.mutual') : ''}</small></div>
+        <div class="lp-row reach-pop"><span>${T('reach.hearsX', { a: esc(me), b: esc(e.label) })}</span><b>${cnt(e.in, e.inLast)}</b></div>
+        <div class="lp-row reach-pop"><span>${T('reach.hearsX', { a: esc(e.label), b: esc(me) })}</span><b>${cnt(e.out, e.outLast)}</b></div>
+        <div class="lp-row reach-pop"><span>${T('live.distanceLabel')}</span><b>${esc(T('stats.airline', { km: fmtKm(km) }))}</b></div>
       </div>`,
     };
   });
-  showOnMap({ kind: 'star', title: `Reach von ${n.long || n.short || 'Repeater'}`, note: 'mit Position · grün: gegenseitig · blau: er hört sie · orange: sie hören ihn', center: { id: ni.id, label: n.long || n.short }, leaves });
+  showOnMap({ kind: 'star', title: T('reach.mapTitle', { name: n.long || n.short || T('type.repeater') }), note: T('reach.mapNote'), center: { id: ni.id, label: n.long || n.short }, leaves });
 }
 
 async function loadContactPath() {
@@ -2939,11 +2972,11 @@ async function loadNeighbours(live) {
     const r = await api(`/api/node/neighbours?id=${encodeURIComponent(ni.id)}${live ? '&live=1' : ''}`);
     if (S.ni !== ni) return;
     ni.nb = r;
-    if (live) ni.msg.nb = { text: r.neighbours.length ? `${r.neighbours.length} Nachbarn empfangen ✔` : 'Antwort ohne Nachbarn.' };
+    if (live) ni.msg.nb = { text: r.neighbours.length ? T('node.nbGot', { n: r.neighbours.length }) : T('node.nbEmpty') };
   } catch (e) {
     if (S.ni !== ni) return;
     ni.nb = ni.nb || { neighbours: [] };
-    ni.msg.nb = { err: true, text: e.status === 504 || /timeout/i.test(e.message) ? 'Keine Antwort vom Repeater.' : permHint(e, 'nodes:read') };
+    ni.msg.nb = { err: true, text: e.status === 504 || /timeout/i.test(e.message) ? T('node.nbNoAnswer') : permHint(e, 'nodes:read') };
   }
   if (S.view === 'node') renderNodeBody();
 }
@@ -2990,7 +3023,7 @@ async function onNodeClick(e) {
   if (b.dataset.traceMap != null) {
     const tr = ni.traces[Number(b.dataset.traceMap)];
     const n = node(ni.id);
-    showOnMap({ title: `Traceroute zu ${n?.long || n?.short || 'Node'}`, numberFrom: 0, points: [{ me: true, label: 'Du' }, ...tr.hops.map((h) => ({ id: h.id, hash: h.hash, label: `${h.name || `#${h.hash}`}${traceSnr(h) ? ` · ${traceSnr(h)}` : ''}` }))] });
+    showOnMap({ title: T('node.traceTo', { name: n?.long || n?.short || 'Node' }), numberFrom: 0, points: [{ me: true, label: T('common.you') }, ...tr.hops.map((h) => ({ id: h.id, hash: h.hash, label: `${h.name || `#${h.hash}`}${traceSnr(h) ? ` · ${traceSnr(h)}` : ''}` }))] });
     return;
   }
   const act = b.dataset.na;
@@ -2998,7 +3031,7 @@ async function onNodeClick(e) {
   const busy = async (key, fn) => {
     ni.busy = key; delete ni.msg[key === 'nb' ? 'nb' : 'conn']; renderNodeBody();
     try { await fn(); } catch (err) {
-      ni.msg[key === 'nb' ? 'nb' : 'conn'] = { err: true, text: err.status === 504 ? 'Keine Antwort – nicht in direkter Funkreichweite.' : err.code === 'MESHCORE_PING_FAILED' || err.status === 409 ? `Nicht möglich: ${err.message}` : permHint(err, 'nodes:write') };
+      ni.msg[key === 'nb' ? 'nb' : 'conn'] = { err: true, text: err.status === 504 ? T('node.pingNoAnswer') : err.code === 'MESHCORE_PING_FAILED' || err.status === 409 ? T('node.notPossible', { msg: err.message }) : permHint(err, 'nodes:write') };
     }
     ni.busy = null;
     if (S.ni === ni && S.view === 'node') renderNodeBody();
@@ -3006,14 +3039,14 @@ async function onNodeClick(e) {
   if (act === 'ping') {
     busy('ping', async () => {
       const r = await api('/api/node/ping', { method: 'POST', body: { id: ni.id } });
-      ni.msg.conn = { text: `Antwort ✔ in ${r.rttMs != null ? `${Math.round(r.rttMs)} ms` : '?'}${r.snrToTarget != null ? ` · SNR hin ${r.snrToTarget} dB` : ''}${r.snrFromTarget != null ? ` / zurück ${r.snrFromTarget} dB` : ''} – direkt in Reichweite.` };
+      ni.msg.conn = { text: `${T('node.pingOk', { rtt: r.rttMs != null ? `${Math.round(r.rttMs)} ms` : '?' })}${r.snrToTarget != null ? ` · ${T('node.snrOut', { v: r.snrToTarget })}` : ''}${r.snrFromTarget != null ? ` / ${T('node.snrBack', { v: r.snrFromTarget })}` : ''} – ${T('node.inRange')}` };
     });
     return;
   }
   if (act === 'reset') {
     busy('reset', async () => {
       await api('/api/node/reset-path', { method: 'POST', body: { id: ni.id } });
-      ni.msg.conn = { text: 'Pfad zurückgesetzt ✔ – die nächste Nachricht sucht den Weg neu (Flood).' };
+      ni.msg.conn = { text: T('node.resetOk') };
       await loadContactPath();
     });
     return;
@@ -3024,7 +3057,7 @@ async function onNodeClick(e) {
       const wait = Math.min(30000, Math.max(5000, r.waitMs || 15000));
       await new Promise((res) => setTimeout(res, wait));
       await loadContactPath();
-      ni.msg.conn = ni.contact?.hops?.length || (ni.contact && !ni.contact.flood) ? { text: 'Pfad gefunden ✔' } : { err: true, text: 'Noch kein Pfad – der Node hat (noch) nicht geantwortet.' };
+      ni.msg.conn = ni.contact?.hops?.length || (ni.contact && !ni.contact.flood) ? { text: T('node.discoverOk') } : { err: true, text: T('node.discoverNone') };
     });
     return;
   }
@@ -3033,7 +3066,7 @@ async function onNodeClick(e) {
   if (act === 'reachmap') { reachMap(ni, n); return; }
   if (act === 'fav') { await toggleFav(ni.id); if (S.view === 'node') renderNodeBody(); return; }
   if (act === 'nbmap') {
-    showOnMap({ kind: 'star', title: `Nachbarn von ${n.long || n.short || 'Repeater'}`, center: { id: ni.id, label: n.long || n.short }, leaves: ni.nb.neighbours.map((x) => ({ id: x.id, hash: x.hash, label: `${x.name || `#${x.hash}`}${x.snr != null ? ` · SNR ${x.snr}` : ''}`, snr: x.snr })) });
+    showOnMap({ kind: 'star', title: T('node.nbOf', { name: n.long || n.short || T('type.repeater') }), center: { id: ni.id, label: n.long || n.short }, leaves: ni.nb.neighbours.map((x) => ({ id: x.id, hash: x.hash, label: `${x.name || `#${x.hash}`}${x.snr != null ? ` · SNR ${x.snr}` : ''}`, snr: x.snr })) });
     return;
   }
   if (act === 'dm') go('chat', `dm:${ni.id}`);
@@ -3042,7 +3075,7 @@ async function onNodeClick(e) {
     ni.busy = 'status'; delete ni.msg.status; renderNodeBody();
     try {
       const r = await api('/api/node/status', { method: 'POST', body: { id: ni.id, type: nodeKind(n) || 'status' } });
-      ni.msg.status = { text: r.written ? 'Antwort erhalten ✔' : 'Keine Antwort vom Node (zu weit weg oder Login nötig).', err: !r.written };
+      ni.msg.status = { text: r.written ? T('node.statusOk') : T('node.statusNone'), err: !r.written };
       if (S.ni === ni) await loadNodeTelemetry();
     } catch (err) { ni.msg.status = { err: true, text: permHint(err, 'messages:write') }; }
     ni.busy = null;
@@ -3058,7 +3091,7 @@ async function onNodeClick(e) {
         const t = await api(`/api/node/traces?id=${encodeURIComponent(ni.id)}`).catch(() => null);
         if (t?.traces?.[0] && t.traces[0].ts > before && t.traces[0].ts >= r.at - 10000) { ni.traces = t.traces; found = true; break; }
       }
-      ni.msg.trace = found ? { text: 'Traceroute angekommen ✔' } : { err: true, text: 'Keine Antwort – der Node ist gerade nicht erreichbar.' };
+      ni.msg.trace = found ? { text: T('node.traceOk') } : { err: true, text: T('node.traceNone') };
     } catch (err) { ni.msg.trace = { err: true, text: permHint(err, 'traceroute:write') }; }
     ni.busy = null;
     if (S.ni === ni && S.view === 'node') renderNodeBody();
@@ -3081,24 +3114,24 @@ async function subscribePush() {
   const cur = sub?.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
   if (sub && cur && (cur.length !== want.length || cur.some((v, i) => v !== want[i]))) { await sub.unsubscribe(); sub = null; }
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: want });
-  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), prefs: S.convPrefs, watch: S.watch } });
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), prefs: S.convPrefs, watch: S.watch, lang: LANG } });
   S.pushEndpoint = sub.endpoint;
   return { persistent };
 }
 
 async function enablePush() {
   if (!pushSupported()) {
-    toast(window.isSecureContext ? 'Dieser Browser unterstützt kein Web Push' : 'Push geht nur über HTTPS (öffne MeshLink Chat über deine HTTPS-Adresse)');
+    toast(window.isSecureContext ? T('push.unsupported') : T('push.https'));
     return;
   }
   const p = await Notification.requestPermission();
-  if (p !== 'granted') { toast('Benachrichtigungen wurden abgelehnt – in den Browser-Einstellungen erlauben'); return; }
+  if (p !== 'granted') { toast(T('push.denied')); return; }
   try {
     const { persistent } = await subscribePush();
     S.notify = true; save('notify', true);
-    toast(persistent ? 'Push-Benachrichtigungen an' : 'Push an – gilt bis zum nächsten Server-Neustart (kein Zustandsordner), danach App einmal öffnen');
+    toast(persistent ? T('push.on') : T('push.onVolatile'));
     sendPresence(true);
-  } catch (e) { toast(`Push-Anmeldung fehlgeschlagen: ${e.message}`); }
+  } catch (e) { toast(T('push.failed', { msg: e.message })); }
 }
 
 // Abo dieses Geräts beim Server und im Browser entfernen
@@ -3118,7 +3151,7 @@ async function dropPushSubscription() {
 async function disablePush() {
   await dropPushSubscription();
   S.notify = false; save('notify', false);
-  toast('Push-Benachrichtigungen aus');
+  toast(T('push.off'));
 }
 
 // Beim Start: Abo beim Server auffrischen (falls er es nach einem Neustart nicht mehr kennt)
@@ -3154,34 +3187,35 @@ function openDrawer() {
   const mc = S.source?.protocol === 'meshcore';
   root.innerHTML = `
     <div class="backdrop" data-close></div>
-    <nav class="drawer" aria-label="Menü">
+    <nav class="drawer" aria-label="${esc(T('drawer.aria'))}">
       <div class="drawer-head">
         <img src="/icons/icon.svg" alt="" class="drawer-logo">
-        <div><b>MeshLink Chat</b><div class="muted">${esc(myName() || 'Eigener Node unbekannt')}</div></div>
+        <div><b>MeshLink Chat</b><div class="muted">${esc(myName() || T('drawer.noNode'))}</div></div>
       </div>
-      <div class="drawer-section">Unterhaltung</div>
-      <button class="drawer-item ${S.view === 'list' ? 'active' : ''}" data-act="chats">${ICON.chat}<span>Chats</span></button>
-      <button class="drawer-item ${S.view === 'contacts' ? 'active' : ''}" data-act="contacts">${ICON.people}<span>Kontakte</span></button>
-      <button class="drawer-item ${S.view === 'mentions' ? 'active' : ''}" data-act="mentions"><span class="drawer-at">@</span><span>Erwähnungen${unreadMentions() ? ` <small class="badge">${unreadMentions()}</small>` : ''}</span></button>
-      ${mc ? `<button class="drawer-item ${S.view === 'rooms' ? 'active' : ''}" data-act="rooms">${ICON.home}<span>Room-Server</span></button>` : ''}
-      <button class="drawer-item ${S.view === 'search' ? 'active' : ''}" data-act="search">${ICON.search}<span>Nachrichten suchen</span></button>
-      <div class="drawer-section">Netz</div>
-      <button class="drawer-item ${S.view === 'map' ? 'active' : ''}" data-act="map">${ICON.map}<span>Karte</span></button>
-      ${mc ? `<button class="drawer-item ${S.view === 'repeaters' ? 'active' : ''}" data-act="repeaters">${ICON.radio}<span>Repeater-Übersicht</span></button>` : ''}
-      <button class="drawer-item ${S.view === 'stats' ? 'active' : ''}" data-act="stats">${ICON.chart}<span>Statistik</span></button>
-      ${drawerGroup('tools', 'Werkzeuge', S.view === 'packets', `
-      ${mc ? `<button class="drawer-item ${S.view === 'packets' ? 'active' : ''}" data-act="packets">${ICON.pulse}<span>Paket-Analyzer</span></button>` : ''}
-      ${mc ? `<button class="drawer-item" data-act="advert">${ICON.megaphone}<span>Advert senden</span></button>` : ''}
-      <button class="drawer-item" data-act="readall">${ICON.check}<span>Alle als gelesen markieren</span></button>`)}
-      ${sources.length > 1 ? drawerGroup('source', 'Quelle in MeshMonitor', false, sources.map((src) => `<button class="drawer-item ${src.id === S.source?.id ? 'active' : ''}" data-source="${esc(src.id)}">${ICON.radio}<span>${esc(src.name)}${src.primary ? ' <small>primär</small>' : ''}</span>${src.id === S.source?.id ? `<i class="drawer-check">${ICON.check}</i>` : ''}</button>`).join(''), S.source?.name) : ''}
-      ${drawerGroup('settings', 'Einstellungen', false, `
-      <button class="drawer-item" data-act="notify">${ICON.bell}<span>Push-Benachrichtigungen: ${notifOn ? 'an' : 'aus'}</span></button>
-      ${notifOn ? `<button class="drawer-item" data-act="pushtest">${ICON.check}<span>Test-Benachrichtigung senden</span></button>` : ''}
-      ${mc ? `<button class="drawer-item" data-act="watch">${ICON.radio}<span>Repeater-Wächter: ${S.watch.on ? 'an' : 'aus'}</span></button>` : ''}
-      <button class="drawer-item" data-act="own">${ICON.user}<span>Meine weiteren Nodes</span></button>`)}
+      <div class="drawer-section">${T('drawer.secChat')}</div>
+      <button class="drawer-item ${S.view === 'list' ? 'active' : ''}" data-act="chats">${ICON.chat}<span>${T('drawer.chats')}</span></button>
+      <button class="drawer-item ${S.view === 'contacts' ? 'active' : ''}" data-act="contacts">${ICON.people}<span>${T('list.contacts')}</span></button>
+      <button class="drawer-item ${S.view === 'mentions' ? 'active' : ''}" data-act="mentions"><span class="drawer-at">@</span><span>${T('men.title')}${unreadMentions() ? ` <small class="badge">${unreadMentions()}</small>` : ''}</span></button>
+      ${mc ? `<button class="drawer-item ${S.view === 'rooms' ? 'active' : ''}" data-act="rooms">${ICON.home}<span>${T('rooms.title')}</span></button>` : ''}
+      <button class="drawer-item ${S.view === 'search' ? 'active' : ''}" data-act="search">${ICON.search}<span>${T('drawer.search')}</span></button>
+      <div class="drawer-section">${T('drawer.secNet')}</div>
+      <button class="drawer-item ${S.view === 'map' ? 'active' : ''}" data-act="map">${ICON.map}<span>${T('map.title')}</span></button>
+      ${mc ? `<button class="drawer-item ${S.view === 'repeaters' ? 'active' : ''}" data-act="repeaters">${ICON.radio}<span>${T('drawer.repeaters')}</span></button>` : ''}
+      <button class="drawer-item ${S.view === 'stats' ? 'active' : ''}" data-act="stats">${ICON.chart}<span>${T('stats.title')}</span></button>
+      ${drawerGroup('tools', T('drawer.tools'), S.view === 'packets', `
+      ${mc ? `<button class="drawer-item ${S.view === 'packets' ? 'active' : ''}" data-act="packets">${ICON.pulse}<span>${T('drawer.packets')}</span></button>` : ''}
+      ${mc ? `<button class="drawer-item" data-act="advert">${ICON.megaphone}<span>${T('advert.title')}</span></button>` : ''}
+      <button class="drawer-item" data-act="readall">${ICON.check}<span>${T('drawer.readAll')}</span></button>`)}
+      ${sources.length > 1 ? drawerGroup('source', T('drawer.source'), false, sources.map((src) => `<button class="drawer-item ${src.id === S.source?.id ? 'active' : ''}" data-source="${esc(src.id)}">${ICON.radio}<span>${esc(src.name)}${src.primary ? ` <small>${T('drawer.primary')}</small>` : ''}</span>${src.id === S.source?.id ? `<i class="drawer-check">${ICON.check}</i>` : ''}</button>`).join(''), S.source?.name) : ''}
+      ${drawerGroup('settings', T('drawer.settings'), false, `
+      <button class="drawer-item" data-act="notify">${ICON.bell}<span>${T('drawer.push', { state: notifOn ? T('common.on') : T('common.off') })}</span></button>
+      ${notifOn ? `<button class="drawer-item" data-act="pushtest">${ICON.check}<span>${T('drawer.pushTest')}</span></button>` : ''}
+      ${mc ? `<button class="drawer-item" data-act="watch">${ICON.radio}<span>${T('drawer.watch', { state: S.watch.on ? T('common.on') : T('common.off') })}</span></button>` : ''}
+      <button class="drawer-item" data-act="own">${ICON.user}<span>${T('own.title')}</span></button>
+      <button class="drawer-item" data-act="lang">${ICON.globe}<span>${T('drawer.language', { name: esc(langName(LANG)) })}</span></button>`)}
       <div class="drawer-spacer"></div>
       <div class="drawer-version">MeshLink Chat ${esc(S.version || '')}</div>
-      <button class="drawer-item danger" data-act="logout">${ICON.logout}<span>Abmelden</span></button>
+      <button class="drawer-item danger" data-act="logout">${ICON.logout}<span>${T('drawer.logout')}</span></button>
     </nav>`;
   root.classList.add('open');
   root.onclick = async (e) => {
@@ -3213,16 +3247,17 @@ function openDrawer() {
     else if (act === 'packets') { if (S.view !== 'packets') go('packets'); }
     else if (act === 'mentions') { if (S.view !== 'mentions') go('mentions'); }
     else if (act === 'watch') openWatch();
+    else if (act === 'lang') openLanguage();
     else if (act === 'notify') {
       if (notifOn) await disablePush(); else await enablePush();
     } else if (act === 'pushtest') {
       try {
         const r = await api('/api/push/test', { method: 'POST' });
         const res = r.results || [];
-        if (!res.length) toast('Kein Gerät angemeldet – Push aus- und wieder einschalten');
-        else if (r.ok) toast(`Test an ${res.filter((x) => x.ok).length} Gerät(e) gesendet – sollte gleich erscheinen`);
-        else toast(`Push-Dienst lehnt ab: ${res.map((x) => x.status || x.error).join(', ')}`);
-      } catch (err) { toast(`Test fehlgeschlagen: ${err.message}`); }
+        if (!res.length) toast(T('push.noDevice'));
+        else if (r.ok) toast(T('push.testSent', { n: res.filter((x) => x.ok).length }));
+        else toast(T('push.rejected', { list: res.map((x) => x.status || x.error).join(', ') }));
+      } catch (err) { toast(T('push.testFailed', { msg: err.message })); }
     } else if (act === 'own') openOwnNodes();
     else if (act === 'advert') openAdvert();
     else if (act === 'readall') {
@@ -3237,17 +3272,38 @@ function openDrawer() {
     }
   };
 }
+// Sprache wählen: "Automatisch" folgt dem Browser, sonst feste Wahl (Cookie). Danach lädt die Seite neu.
+const langName = (code) => (I18N.langs || []).find((l) => l.code === code)?.name || code;
+function openLanguage() {
+  const own = ownLanguage();
+  const opt = (code, label, sub = '') => {
+    const active = (code || null) === own;
+    return `<button class="sheet-btn scope-opt ${active ? 'active' : ''}" data-lang="${esc(code || '')}"><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${active ? `<i>${ICON.check}</i>` : ''}</button>`;
+  };
+  openSheet(`
+    <div class="sheet-title">${T('lang.title')}</div>
+    ${opt(null, T('lang.auto'), own ? T('lang.autoSub') : T('lang.autoNow', { name: langName(LANG) }))}
+    ${(I18N.langs || []).map((l) => opt(l.code, l.name)).join('')}
+    <div class="hint">${T('lang.hint')}</div>
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
+    const b = e.target.closest('[data-lang]');
+    if (!b) return;
+    const code = b.dataset.lang || null;
+    closeSheet();
+    if (code !== own) setLanguage(code);
+  });
+}
 function closeDrawer() { const r = $('#drawer-root'); r.classList.remove('open'); r.innerHTML = ''; }
 
 async function switchSource(id) {
   const name = (S.sources || []).find((x) => x.id === id)?.name || id;
-  toast(`Wechsle zu ${name} …`);
+  toast(T('src.switching', { name }));
   try {
     await api('/api/source', { method: 'POST', body: { id } });
     // Der Server meldet "reset" per SSE an alle Geräte; hier zusätzlich direkt neu laden
     await resetData();
-    toast(`Quelle: ${name}`);
-  } catch (e) { toast(`Wechsel fehlgeschlagen: ${e.message}`); }
+    toast(T('src.now', { name }));
+  } catch (e) { toast(T('src.failed', { msg: e.message })); }
 }
 
 async function resetData() {
@@ -3362,18 +3418,18 @@ async function sendText(text, replyToId, emoji = false) {
   } catch (e) {
     const t = S.msgs.get(tid);
     if (t) t.state = 'failed';
-    toast(`Senden fehlgeschlagen: ${e.message}`);
+    toast(T('send.failed', { msg: e.message }));
   }
   scheduleRender();
 }
 
 function sendReaction(msgId, emoji) {
   const m = S.msgs.get(msgId);
-  if (!canReactTo(m)) { toast('Reaktion für diese Nachricht nicht möglich'); return; }
+  if (!canReactTo(m)) { toast(T('react.notPossible')); return; }
   if (S.source?.protocol !== 'meshcore') { sendText(emoji, msgId, true); return; }
   // Gleiche eigene Reaktion schon da? MeshCore kann Reaktionen nicht zurücknehmen.
   const dup = [...S.msgs.values()].some((r) => r.reaction && String(r.replyId) === m.id && r.emoji === emoji && isMine(r));
-  if (dup) { toast('Diese Reaktion hast du schon gesendet'); return; }
+  if (dup) { toast(T('react.dup')); return; }
   const tid = `tmp-${++S.tmpSeq}`;
   S.msgs.set(tid, { id: tid, from: S.me || '__me__', to: m.dm ? (isMine(m) ? m.to : m.from) : null, channel: m.channel, dm: m.dm, text: emoji, ts: Date.now(), replyId: m.id, reaction: true, emoji, state: 'sending', local: true });
   S.sentIds.add(tid);
@@ -3381,8 +3437,8 @@ function sendReaction(msgId, emoji) {
   scheduleRender();
   api('/api/react', { method: 'POST', body: { id: m.id, emoji } }).then(() => { const t = S.msgs.get(tid); if (t) t.state = 'sent'; }).catch((e) => {
     S.msgs.delete(tid); S.pending.delete(tid); scheduleRender();
-    const why = { REACTIONS_OUTBOUND_DISABLED: 'Reaktionen senden ist für diese Quelle in MeshMonitor ausgeschaltet', DUPLICATE_REACTION: 'Diese Reaktion hast du schon gesendet', INVALID_EMOJI: 'Dieses Emoji geht als Reaktion nicht', MESSAGE_NOT_FOUND: 'MeshMonitor kennt diese Nachricht nicht (mehr)' }[e.code];
-    toast(why || (e.status === 403 ? 'Keine Berechtigung zum Senden (messages:write)' : `Reaktion fehlgeschlagen: ${e.message}`));
+    const why = { REACTIONS_OUTBOUND_DISABLED: T('react.outboundOff'), DUPLICATE_REACTION: T('react.dup'), INVALID_EMOJI: T('react.invalid'), MESSAGE_NOT_FOUND: T('react.unknownMsg') }[e.code];
+    toast(why || (e.status === 403 ? T('common.noSendPerm') : T('react.failed', { msg: e.message })));
   });
 }
 
@@ -3417,29 +3473,29 @@ function setupMessageGestures() {
     if (geo) {
       const [lat, lon] = geo.dataset.geo.split(',').map(Number);
       const m = S.msgs.get(geo.closest('.row')?.dataset.id);
-      const who = m ? (isMine(m) ? 'Du' : nodeName(m.from)) : 'Standort';
-      showOnMap({ title: `📍 Standort von ${who}`, numberFrom: 0, points: [{ lat, lon, label: `📍 ${who}`, tag: '📍' }, ...(S.mePos && !(m && isMine(m)) ? [{ me: true, label: 'Du' }] : [])] });
+      const who = m ? (isMine(m) ? T('common.you') : nodeName(m.from)) : T('loc.label');
+      showOnMap({ title: `📍 ${T('loc.of', { name: who })}`, numberFrom: 0, points: [{ lat, lon, label: `📍 ${who}`, tag: '📍' }, ...(S.mePos && !(m && isMine(m)) ? [{ me: true, label: T('common.you') }] : [])] });
       return;
     }
     const rr = e.target.closest('[data-route-reset]');
     if (rr) {
       const m = S.msgs.get(rr.dataset.routeReset);
-      if (m) resetDmPath(m).then((ok) => ok && toast('Pfad zurückgesetzt ✔ – die nächste DM sucht den Weg neu (Flood)'));
+      if (m) resetDmPath(m).then((ok) => ok && toast(T('path.resetOk')));
       return;
     }
     const rm = e.target.closest('[data-route-map]');
     if (rm) {
       const m = S.msgs.get(rm.dataset.routeMap);
       if (m && isMine(m) && m.outRoute?.hops.length) {
-        showOnMap({ title: `Weg zu ${nodeName(m.to)}`, numberFrom: 0, points: [
-          { me: true, label: 'Du' },
+        showOnMap({ title: T('out.to', { name: nodeName(m.to) }), numberFrom: 0, points: [
+          { me: true, label: T('common.you') },
           ...m.outRoute.hops.map((h) => ({ hash: h.hash, label: relayLabel(h) })),
           { id: m.to, label: nodeName(m.to), tag: '✉' }] });
       } else if (m?.route) {
-        showOnMap({ title: `Weg von ${nodeName(m.from)}`, numberFrom: 0, points: [
+        showOnMap({ title: T('map.pathFrom', { name: nodeName(m.from) }), numberFrom: 0, points: [
           m.dm ? { id: m.from, label: nodeName(m.from), tag: '✉' } : { name: m.name, label: nodeName(m.from), tag: '✉' },
           ...m.route.hops.map((h) => ({ hash: h.hash, label: relayLabel(h) })),
-          { me: true, label: 'Du' }] });
+          { me: true, label: T('common.you') }] });
       }
       return;
     }
@@ -3489,16 +3545,16 @@ function openActions(id) {
   if (!m || id.startsWith('tmp-')) return;
   const canReact = canReactTo(m);
   openSheet(`
-    ${canReact ? `<div class="emoji-row">${QUICK.map((e) => `<button class="emoji" data-emoji="${e}">${e}</button>`).join('')}<button class="emoji more" data-act="custom" aria-label="Anderes Emoji">${ICON.plus}</button></div>` : ''}
-    <div class="sheet-preview"><b>${esc(isMine(m) ? 'Du' : nodeName(m.from))}</b> · ${hm(m.ts)}<div>${esc(m.text)}</div></div>
-    <button class="sheet-btn" data-act="reply">Antworten</button>
-    <button class="sheet-btn" data-act="copy">Text kopieren</button>
-    ${resendInfo(m)?.state === 'ready' ? '<button class="sheet-btn" data-act="resend">Nochmal senden</button>' : ''}
-    ${ownDmTools(m) && m.state !== 'delivered' ? '<button class="sheet-btn" data-act="flood">Pfad zurücksetzen &amp; per Flood neu senden<small>Neue Nachricht mit gleichem Text – kommt die erste doch noch an, sieht der Empfänger sie doppelt.</small></button>' : ''}
-    ${ownDmTools(m) ? '<button class="sheet-btn" data-act="reset">Pfad zurücksetzen<small>Die nächste DM sucht den Weg neu (Flood).</small></button>' : ''}
-    ${m.dm || isMine(m) ? '' : `<button class="sheet-btn" data-act="dm">Direktnachricht an ${esc(nodeName(m.from))}</button>`}
-    <button class="sheet-btn" data-act="info">Details</button>
-    <button class="sheet-btn cancel" data-close>Abbrechen</button>`, (e) => {
+    ${canReact ? `<div class="emoji-row">${QUICK.map((e) => `<button class="emoji" data-emoji="${e}">${e}</button>`).join('')}<button class="emoji more" data-act="custom" aria-label="${esc(T('actions.otherEmoji'))}">${ICON.plus}</button></div>` : ''}
+    <div class="sheet-preview"><b>${esc(isMine(m) ? T('common.you') : nodeName(m.from))}</b> · ${hm(m.ts)}<div>${esc(m.text)}</div></div>
+    <button class="sheet-btn" data-act="reply">${T('actions.reply')}</button>
+    <button class="sheet-btn" data-act="copy">${T('actions.copy')}</button>
+    ${resendInfo(m)?.state === 'ready' ? `<button class="sheet-btn" data-act="resend">${T('actions.resend')}</button>` : ''}
+    ${ownDmTools(m) && m.state !== 'delivered' ? `<button class="sheet-btn" data-act="flood">${T('actions.flood')}<small>${T('actions.floodSub')}</small></button>` : ''}
+    ${ownDmTools(m) ? `<button class="sheet-btn" data-act="reset">${T('actions.reset')}<small>${T('actions.resetSub')}</small></button>` : ''}
+    ${m.dm || isMine(m) ? '' : `<button class="sheet-btn" data-act="dm">${T('actions.dm', { name: esc(nodeName(m.from)) })}</button>`}
+    <button class="sheet-btn" data-act="info">${T('actions.details')}</button>
+    <button class="sheet-btn cancel" data-close>${T('common.cancel')}</button>`, (e) => {
     const em = e.target.closest('[data-emoji]');
     if (em) { closeSheet(); sendReaction(id, em.dataset.emoji); return; }
     const act = e.target.closest('[data-act]')?.dataset.act;
@@ -3511,7 +3567,7 @@ function openActions(id) {
       $('#input').focus();
     } else if (act === 'copy') {
       closeSheet();
-      navigator.clipboard?.writeText(m.text).then(() => toast('Kopiert'), () => toast('Kopieren nicht möglich'));
+      navigator.clipboard?.writeText(m.text).then(() => toast(T('actions.copied')), () => toast(T('common.copyFailed')));
     } else if (act === 'dm') {
       closeSheet(); go('chat', `dm:${m.from}`);
     } else if (act === 'resend') {
@@ -3519,7 +3575,7 @@ function openActions(id) {
     } else if (act === 'flood') {
       closeSheet(); floodResend(id);
     } else if (act === 'reset') {
-      closeSheet(); resetDmPath(m).then((ok) => ok && toast('Pfad zurückgesetzt ✔ – die nächste DM sucht den Weg neu (Flood)'));
+      closeSheet(); resetDmPath(m).then((ok) => ok && toast(T('path.resetOk')));
     } else if (act === 'info') {
       openInfo(m);
     } else if (act === 'custom') {
@@ -3530,8 +3586,8 @@ function openActions(id) {
 
 function openCustomEmoji(id) {
   openSheet(`
-    <form class="custom-emoji" id="ce"><input id="ce-in" maxlength="16" placeholder="Emoji eingeben" autocomplete="off"><button class="sheet-btn primary" type="submit">Senden</button></form>
-    <button class="sheet-btn cancel" data-close>Abbrechen</button>`);
+    <form class="custom-emoji" id="ce"><input id="ce-in" maxlength="16" placeholder="${esc(T('actions.emojiPh'))}" autocomplete="off"><button class="sheet-btn primary" type="submit">${T('common.send')}</button></form>
+    <button class="sheet-btn cancel" data-close>${T('common.cancel')}</button>`);
   const inp = $('#ce-in');
   setTimeout(() => inp.focus(), 50);
   $('#ce').onsubmit = (e) => {
@@ -3546,36 +3602,36 @@ function openInfo(m) {
   const row = (k, v) => (v == null || v === '' ? '' : `<div class="info-row"><span>${k}</span><b>${esc(v)}</b></div>`);
   openSheet(`
     <div class="info">
-      ${row('Von', `${nodeName(m.from)} (${m.from})`)}
-      ${m.dm ? row('An', `${nodeName(m.to)} (${m.to})`) : row('Kanal', `${channelName(m.channel)} (${m.channel})`)}
-      ${row('Zeit', new Date(m.ts).toLocaleString('de-DE'))}
+      ${row(T('pk.rFrom'), `${nodeName(m.from)} (${m.from})`)}
+      ${m.dm ? row(T('info.to'), `${nodeName(m.to)} (${m.to})`) : row(T('pk.tChannel'), `${channelName(m.channel)} (${m.channel})`)}
+      ${row(T('live.time'), new Date(m.ts).toLocaleString(LOC))}
       ${row('Hops', m.hops)}
-      ${row('Scope', msgScope(m) ? `${msgScope(m).text}${m.scope?.code ? ` (Code ${m.scope.code.toString(16)})` : m.scope?.code === 0 ? ' ohne Scope' : ''}` : null)}
-      ${row('Hash-Größe im Weg', m.route?.bytes ? `${m.route.bytes} Byte je Repeater` : null)}
+      ${row('Scope', msgScope(m) ? `${msgScope(m).text}${m.scope?.code ? ` (Code ${m.scope.code.toString(16)})` : m.scope?.code === 0 ? ` ${T('info.noScope')}` : ''}` : null)}
+      ${row(T('info.hashSize'), m.route?.bytes ? T('info.hashPer', { n: m.route.bytes }) : null)}
       ${row('SNR', m.snr)}
       ${row('RSSI', m.rssi)}
-      ${row('Status', ({ sent: m.dm ? (Date.now() - m.ts < 10 * 60000 ? 'gesendet – warte auf Bestätigung' : 'gesendet (keine Bestätigung)') : 'gesendet – Kanäle haben keine Empfangsbestätigung', delivered: `zugestellt ✓✓${m.rtt != null ? ` (Antwort nach ${(m.rtt / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} s)` : ''}`, pending: 'ausstehend', failed: 'keine Bestätigung – nicht zugestellt (alle Versuche)' })[m.state] || m.state)}
-      ${row('Paket-ID', m.packetId)}
-      ${isMine(m) && (!m.dm || (m.heard || []).length) && S.source?.protocol === 'meshcore' ? row('Gehört von', (m.heard || []).length ? m.heard.map((r) => `${relayLabel(r)}${r.snr != null ? ` (SNR ${r.snr})` : ''}`).join(', ') : 'keinem Repeater') : ''}
+      ${row('Status', ({ sent: m.dm ? (Date.now() - m.ts < 10 * 60000 ? T('info.sentWait') : T('info.sentNoAck')) : T('info.sentChannel'), delivered: `${T('info.delivered')}${m.rtt != null ? ` ${T('info.rtt', { s: (m.rtt / 1000).toLocaleString(LOC, { maximumFractionDigits: 1 }) })}` : ''}`, pending: T('info.pending'), failed: T('info.failed') })[m.state] || m.state)}
+      ${row(T('info.packetId'), m.packetId)}
+      ${isMine(m) && (!m.dm || (m.heard || []).length) && S.source?.protocol === 'meshcore' ? row(T('info.heardBy'), (m.heard || []).length ? m.heard.map((r) => `${relayLabel(r)}${r.snr != null ? ` (SNR ${r.snr})` : ''}`).join(', ') : T('info.noRepeater')) : ''}
     </div>
-    <button class="sheet-btn cancel" data-close>Schließen</button>`);
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`);
 }
 
 function openOwnNodes() {
   const auto = [...S.otherNames];
   openSheet(`
-    <div class="sheet-preview"><b>Meine weiteren Nodes</b><div>Nachrichten dieser Absender erscheinen rechts mit „via …“, ohne Ungelesen-Zähler und Benachrichtigung. Gesendet wird immer über ${esc(S.source?.name || 'die Hauptquelle')}.</div></div>
-    ${auto.length ? `<div class="info"><div class="info-row"><span>Automatisch erkannt</span><b>${auto.map(esc).join(', ')}</b></div></div>` : ''}
+    <div class="sheet-preview"><b>${T('own.title')}</b><div>${T('own.text', { src: esc(S.source?.name || T('own.mainSource')) })}</div></div>
+    ${auto.length ? `<div class="info"><div class="info-row"><span>${T('own.auto')}</span><b>${auto.map(esc).join(', ')}</b></div></div>` : ''}
     <form id="own-form" class="own-form">
-      <textarea id="own-in" rows="4" placeholder="Ein Absendername pro Zeile, z. B.&#10;MeinNode-Mobil">${esc([...S.extraOwn].join('\n'))}</textarea>
-      <button class="sheet-btn primary" type="submit">Speichern</button>
+      <textarea id="own-in" rows="4" placeholder="${T('own.ph')}">${esc([...S.extraOwn].join('\n'))}</textarea>
+      <button class="sheet-btn primary" type="submit">${T('common.save')}</button>
     </form>
-    <button class="sheet-btn cancel" data-close>Abbrechen</button>`);
+    <button class="sheet-btn cancel" data-close>${T('common.cancel')}</button>`);
   $('#own-form').onsubmit = (e) => {
     e.preventDefault();
     const names = $('#own-in').value.split('\n').map((x) => x.trim()).filter(Boolean);
     S.extraOwn = new Set(names); save('extraOwn', names);
-    closeSheet(); toast('Gespeichert'); scheduleRender();
+    closeSheet(); toast(T('common.saved')); scheduleRender();
   };
 }
 
@@ -3605,9 +3661,9 @@ function notify(fresh) {
     navigator.serviceWorker?.ready.then((reg) => {
       for (const m of relevant.slice(-3)) {
         const key = convOf(m.reaction ? targetOf(m) : m);
-        const title = m.reaction ? `${nodeName(m.from)} hat reagiert` : key.startsWith('dm:') ? nodeName(m.from) : `${nodeName(m.from)} in ${convTitle(key)}`;
+        const title = m.reaction ? T('notif.reacted', { name: nodeName(m.from) }) : key.startsWith('dm:') ? nodeName(m.from) : T('notif.inConv', { name: nodeName(m.from), conv: convTitle(key) });
         reg.showNotification(title, {
-          body: m.reaction ? `${m.emoji} auf „${targetOf(m)?.text || ''}“` : m.text,
+          body: m.reaction ? T('notif.reactBody', { emoji: m.emoji, text: targetOf(m)?.text || '' }) : m.text,
           tag: key, renotify: true, icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', data: { conv: key },
         });
       }
@@ -3616,7 +3672,7 @@ function notify(fresh) {
     const m = relevant[relevant.length - 1];
     if (m.reaction) return;
     const key = convOf(m);
-    toast(`${nodeName(m.from)}${key.startsWith('ch:') ? ` in ${convTitle(key)}` : ''}: ${m.text}`, () => go('chat', key));
+    toast(`${key.startsWith('ch:') ? T('notif.inConv', { name: nodeName(m.from), conv: convTitle(key) }) : nodeName(m.from)}: ${m.text}`, () => go('chat', key));
   }
 }
 
@@ -3632,9 +3688,9 @@ function showLogin() {
       <form class="login" id="login">
         <img src="/icons/icon.svg" alt="" class="login-logo">
         <h1>MeshLink Chat</h1>
-        <p class="muted">Bitte anmelden</p>
-        <input type="password" id="pw" placeholder="Passwort" autocomplete="current-password" required>
-        <button class="sheet-btn primary" type="submit">Anmelden</button>
+        <p class="muted">${T('login.prompt')}</p>
+        <input type="password" id="pw" placeholder="${esc(T('login.pw'))}" autocomplete="current-password" required>
+        <button class="sheet-btn primary" type="submit">${T('login.submit')}</button>
         <div class="login-err" id="login-err"></div>
       </form>
     </div>`;
@@ -3659,8 +3715,8 @@ function showOffline(e) {
       <div class="login">
         <img src="/icons/icon.svg" alt="" class="login-logo">
         <h1>MeshLink Chat</h1>
-        <p class="muted">Keine Verbindung zum Server.<br>Versuche es automatisch erneut …</p>
-        <button class="sheet-btn primary" id="retry">Jetzt erneut versuchen</button>
+        <p class="muted">${T('offline.text')}</p>
+        <button class="sheet-btn primary" id="retry">${T('offline.retry')}</button>
         <div class="login-err">${esc(e?.message || '')}</div>
       </div>
     </div>`;

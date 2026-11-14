@@ -14,52 +14,57 @@
 # oder einmalig: MESHLINK_HOST=root@1.2.3.4 scripts/deploy.sh
 set -euo pipefail
 
+case "${MESHLINK_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}" in de*|DE*) ML=de ;; *) ML=en ;; esac
+export MESHLINK_LANG="$ML"
+t() { if [ "$ML" = de ]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }
+
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 [ -f .deploy.env ] && { set -a; . ./.deploy.env; set +a; }
 HOST="${MESHLINK_HOST:-}"
-[ -n "$HOST" ] || { echo "Kein Ziel: MESHLINK_HOST in .deploy.env setzen (z. B. MESHLINK_HOST=root@192.168.1.50)." >&2; exit 1; }
+[ -n "$HOST" ] || { echo "$(t 'Kein Ziel: MESHLINK_HOST in .deploy.env setzen (z. B. MESHLINK_HOST=root@192.168.1.50).' 'No target: set MESHLINK_HOST in .deploy.env (e.g. MESHLINK_HOST=root@192.168.1.50).')" >&2; exit 1; }
 KEY="${MESHLINK_KEY:-}"
 KEY="${KEY/#\~/$HOME}"
 DEST="${MESHLINK_DIR:-/opt/meshlink-chat}"
 SSH=(ssh -o ConnectTimeout=10)
 [ -n "$KEY" ] && SSH+=(-i "$KEY" -o IdentitiesOnly=yes)
 
-# Vor jeder Übertragung: Syntax prüfen (bricht ab, bevor irgendetwas auf den LXC geht)
+# Vor jeder Übertragung: Syntax und Sprachdateien prüfen (bricht ab, bevor irgendetwas auf den LXC geht)
 precheck() {
   for f in server/*.js public/app.js public/sw.js; do node --check "$f"; done
+  node scripts/check-i18n.js >/dev/null || { node scripts/check-i18n.js; exit 1; }
   bash -n install.sh && bash -n uninstall.sh
 }
 # Quelltext als tar auf die Standardausgabe schreiben
 pack() {
   local files=(server public install.sh uninstall.sh)
-  for f in README.md .env.example LICENSE; do [ -f "$f" ] && files+=("$f"); done
+  for f in README.md README.de.md .env.example LICENSE; do [ -f "$f" ] && files+=("$f"); done
   tar czf - --exclude='.env' "${files[@]}"
 }
 
 case "${1:-deploy}" in
   deploy)
     precheck
-    echo "→ übertrage nach $HOST …"
+    echo "→ $(t 'übertrage nach' 'uploading to') $HOST …"
     pack | "${SSH[@]}" "$HOST" \
-      'set -e; T=$(mktemp -d /tmp/meshlink-src.XXXXXX); trap "rm -rf $T" EXIT; tar xzf - -C "$T"; MESHLINK_DIR="'"$DEST"'" "$T/install.sh" --update'
+      'set -e; T=$(mktemp -d /tmp/meshlink-src.XXXXXX); trap "rm -rf $T" EXIT; tar xzf - -C "$T"; MESHLINK_LANG="'"$ML"'" MESHLINK_DIR="'"$DEST"'" "$T/install.sh" --update'
     ;;
   install)
     precheck
-    echo "→ übertrage nach $HOST …"
+    echo "→ $(t 'übertrage nach' 'uploading to') $HOST …"
     T="$(pack | "${SSH[@]}" "$HOST" 'set -e; T=$(mktemp -d /tmp/meshlink-src.XXXXXX); tar xzf - -C "$T"; echo "$T"')"
-    [[ "$T" == /tmp/meshlink-src.* ]] || { echo "Übertragung fehlgeschlagen." >&2; exit 1; }
+    [[ "$T" == /tmp/meshlink-src.* ]] || { echo "$(t 'Übertragung fehlgeschlagen.' 'Upload failed.')" >&2; exit 1; }
     # -t: eigenes Terminal, damit install.sh Fragen stellen kann; Quellordner danach wieder weg
-    "${SSH[@]}" -t "$HOST" "MESHLINK_DIR='$DEST' '$T/install.sh'; rc=\$?; rm -rf '$T'; exit \$rc"
+    "${SSH[@]}" -t "$HOST" "MESHLINK_LANG='$ML' MESHLINK_DIR='$DEST' '$T/install.sh'; rc=\$?; rm -rf '$T'; exit \$rc"
     ;;
   check)
-    "${SSH[@]}" "$HOST" "N=\$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' /etc/systemd/system/meshlink-chat.service); cd '$DEST' && set -a && . ./.env && set +a && \"\${N:-node}\" server/server.js --check"
+    "${SSH[@]}" "$HOST" "export MESHLINK_LANG='$ML'; N=\$(sed -n 's/^ExecStart=\([^ ]*\) .*/\1/p' /etc/systemd/system/meshlink-chat.service); cd '$DEST' && set -a && . ./.env && set +a && \"\${N:-node}\" server/server.js --check"
     ;;
   uninstall)
     # -t: uninstall.sh fragt "Fortfahren? (j/n)" – die Antwort gibst du hier im Terminal
-    "${SSH[@]}" -t "$HOST" "if [ -x '$DEST/uninstall.sh' ]; then '$DEST/uninstall.sh'; else echo 'Keine Installation in $DEST gefunden.'; fi"
+    "${SSH[@]}" -t "$HOST" "if [ -x '$DEST/uninstall.sh' ]; then MESHLINK_LANG='$ML' '$DEST/uninstall.sh'; else echo '$(t "Keine Installation in $DEST gefunden." "No installation found in $DEST.")'; fi"
     ;;
   logs)   "${SSH[@]}" "$HOST" 'journalctl -u meshlink-chat -n 60 --no-pager' ;;
   status) "${SSH[@]}" "$HOST" 'systemctl status meshlink-chat --no-pager | head -n 15' ;;
-  *) echo "Unbekannt: $1 (deploy|install|uninstall|check|logs|status)" >&2; exit 1 ;;
+  *) echo "$(t Unbekannt Unknown): $1 (deploy|install|uninstall|check|logs|status)" >&2; exit 1 ;;
 esac

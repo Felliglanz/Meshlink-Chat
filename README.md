@@ -1,314 +1,351 @@
 <div align="center">
 
+[Deutsch](README.de.md) · **English**
+
 # 📡 MeshLink Chat
 
-**Der Messenger für dein MeshCore-Netz – als Web-App für MeshMonitor.**
-<br><sub>Im Browser, auf dem Handy, ohne App-Store.</sub>
+**The messenger for your MeshCore network – as a web app for MeshMonitor.**
+<br><sub>In the browser, on your phone, no app store.</sub>
 
-MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/meshmonitor) und macht daraus eine
-Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
-Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
+MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmonitor) and turns it into a
+chat app with a map, live packets, a packet analyzer and push notifications.
+Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.0.0` · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.1.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
 > [!NOTE]
-> **Hobby-Projekt ohne Support.** Issues und Discussions sind bewusst ausgeschaltet. Nutzen, anpassen und forken ist
-> ausdrücklich erwünscht (MIT).
+> **Hobby project without support.** Issues and Discussions are turned off on purpose. Using, adapting and forking
+> is explicitly welcome (MIT).
 
 <p align="center">
-  <img src="docs/screenshots/chat.png" width="240" alt="Kanal-Chat mit Repeater-Echos">
-  <img src="docs/screenshots/map-live.png" width="240" alt="Live-Pakete auf der Karte">
-  <img src="docs/screenshots/packet-detail.png" width="240" alt="Paket-Analyzer: Byte-Aufschlüsselung">
+  <img src="docs/screenshots/chat.png" width="240" alt="Channel chat with repeater echoes">
+  <img src="docs/screenshots/map-live.png" width="240" alt="Live packets on the map">
+  <img src="docs/screenshots/packet-detail.png" width="240" alt="Packet analyzer: byte breakdown">
 </p>
 
 ---
 
-## Was kann MeshLink Chat?
+## What can MeshLink Chat do?
 
-💬 **Chatten wie gewohnt.** Kanäle und Direktnachrichten, Antworten, Reaktionen, Erwähnungen mit `@`, Zustellhaken,
-ungelesen-Markierung, Suche. Läuft als installierbare PWA auf iPhone, Android und am PC, dort mit Chatliste und
-Chat nebeneinander.
+💬 **Chat as usual.** Channels and direct messages, replies, reactions, mentions with `@`, delivery ticks,
+unread markers, search. Runs as an installable PWA on iPhone, Android and desktop, where the chat list and the
+chat sit side by side.
 
-📡 **Sehen, wer dich gehört hat.** Unter jeder eigenen Nachricht steht, welche Repeater sie weitergesendet haben,
-mit Hop-Position und SNR. Bei DMs zeigt MeshLink Chat nach der Zustellung den **tatsächlichen Weg zum Empfänger**. Bei
-empfangenen Nachrichten siehst du den Weg zu dir, auf Wunsch auf der Karte mit Kilometern je Teilstück.
+📡 **See who heard you.** Under each of your messages you see which repeaters forwarded it, with hop position and
+SNR. For DMs, MeshLink Chat shows the **actual path to the recipient** once delivered. For received messages you
+see the path to you, optionally on the map with the distance of each leg.
 
-🗺️ **Eine Karte, die mitdenkt.** Alle Nodes mit Position, Verbindungslinien aus echten Nachrichtenwegen, acht
-Kartenstile und Vollbild. Mit **⚡ Live** fliegt jedes Paket als farbiger Punkt über die Repeater zu dir, an jedem
-Repeater läuft eine kleine Welle aus. Die Spur bleibt kurz stehen; tippst du sie an, siehst du Typ, Weg, Strecke und SNR.
+🗺️ **A map that thinks along.** All nodes with a position, links from real message paths, eight map styles and
+full screen. With **⚡ Live**, every packet flies as a coloured dot via the repeaters to you, with a small ripple
+at each repeater. The trail stays for a moment; tap it to see type, path, distance and SNR.
 
-🔬 **Paket-Analyzer.** MeshMonitors Paket-Log als filterbare Liste: nach Typ, Route, Repeater oder Absender.
-Ein Tipp zerlegt das Paket **Byte für Byte** in farbige Felder: Header, Pfad, Schlüssel, Signatur, Position, MAC …
+🔬 **Packet analyzer.** MeshMonitor's packet log as a filterable list: by type, route, repeater or sender.
+One tap breaks the packet down **byte by byte** into coloured fields: header, path, key, signature, position, MAC …
 
-🛰️ **Reach (experimentell).** Wen hört ein Repeater direkt, und wer hört ihn? MeshLink Chat wertet dafür die Wege der
-Pakete aus, die dein Companion empfangen hat. Es braucht keine zusätzlichen Nodes.
+🛰️ **Reach (experimental).** Whom does a repeater hear directly, and who hears it? MeshLink Chat works this out
+from the paths of the packets your companion received. No extra nodes needed.
 
-🧭 **Werkzeuge für Bastler.** Eigene Traceroute über selbst gewählte Repeater mit SNR hin und zurück, Repeater-Status
-und Verläufe, Nachbarlisten, Direkt-Ping, Pfad zurücksetzen und eine DM per Flood neu senden, Advert senden.
+🧭 **Tools for tinkerers.** Custom traceroute via repeaters you pick, with SNR there and back, repeater status and
+history, neighbour lists, direct ping, reset path and resend a DM by flood, send advert.
 
-📊 **Statistik.** Heute, gestern oder 7 Tage: Nachrichten und Pakete je Stunde, Rekorde (weitester Absender,
-längster Weg …), Pakettypen, SNR/RSSI. Lässt sich als **PDF** speichern.
+📊 **Statistics.** Today, yesterday or 7 days: messages and packets per hour, records (farthest sender, longest
+path …), packet types, SNR/RSSI. Can be saved as **PDF**.
 
-🔔 **Push.** Bei DMs, Erwähnungen und Reaktionen auf deine Nachrichten; pro Chat einstellbar. Dazu gibt es einen
-**Repeater-Wächter**, der meldet, wenn ein Favoriten-Repeater verstummt oder sein Akku schwächelt.
+🔔 **Push.** For DMs, mentions and reactions to your messages; adjustable per chat. Plus a **repeater watch** that
+tells you when a favourite repeater goes silent or its battery runs low.
+
+🌍 **English and German.** The app follows the browser language and can be switched per device
+(☰ → Settings → Language). Push notifications arrive in each device's language. More languages are a single file,
+see [Adding a language](#adding-a-language).
 
 <p align="center">
-  <img src="docs/screenshots/chats.png" width="190" alt="Chatliste">
-  <img src="docs/screenshots/dm.png" width="190" alt="DM mit Weg zum Empfänger">
-  <img src="docs/screenshots/packets.png" width="190" alt="Paket-Analyzer: Liste">
-  <img src="docs/screenshots/stats.png" width="190" alt="Statistik">
+  <img src="docs/screenshots/chats.png" width="190" alt="Chat list">
+  <img src="docs/screenshots/dm.png" width="190" alt="DM with the path to the recipient">
+  <img src="docs/screenshots/packets.png" width="190" alt="Packet analyzer: list">
+  <img src="docs/screenshots/stats.png" width="190" alt="Statistics">
 </p>
 <p align="center">
-  <img src="docs/screenshots/reach.png" width="240" alt="Reach eines Repeaters">
-  <img src="docs/screenshots/reach-map.png" width="240" alt="Reach auf der Karte">
+  <img src="docs/screenshots/reach.png" width="240" alt="Reach of a repeater">
+  <img src="docs/screenshots/reach-map.png" width="240" alt="Reach on the map">
 </p>
 
-<sub>Alle Screenshots zeigen erfundene Testdaten.</sub>
+<sub>All screenshots show made-up test data (German interface).</sub>
 
-## So funktioniert es
+## How it works
 
 ```
-Handy / PC (PWA) ──HTTPS── Reverse-Proxy / Tunnel ── MeshLink Chat :8090 ──REST-API── MeshMonitor ── Companion-Node
+Phone / PC (PWA) ──HTTPS── reverse proxy / tunnel ── MeshLink Chat :8090 ──REST API── MeshMonitor ── companion node
 ```
 
-Drei Grundsätze ziehen sich durch alles:
+Three principles run through everything:
 
-- **Nur die MeshMonitor-API.** MeshLink Chat spricht nie selbst mit dem Funkgerät. Der API-Token bleibt auf dem Server
-  und erreicht nie den Browser.
-- **Kein Datenhaufen.** Nachrichten, Nodes und Verläufe kommen frisch aus MeshMonitor und liegen nur im
-  Arbeitsspeicher. Jeder Zwischenspeicher hat eine feste Obergrenze. Einzige Datei auf der Platte ist `push.json`
-  mit höchstens 10 Push-Abos.
-- **Restlos entfernbar.** Keine Pakete, keine Benutzer, keine Cronjobs. `uninstall.sh` räumt alles ab und prüft danach nach.
+- **Only the MeshMonitor API.** MeshLink Chat never talks to the radio itself. The API token stays on the server
+  and never reaches the browser.
+- **No data hoard.** Messages, nodes and history come fresh from MeshMonitor and live only in memory. Every cache
+  has a fixed limit. The only file on disk is `push.json` with at most 10 push subscriptions.
+- **Removable without a trace.** No packages, no users, no cron jobs. `uninstall.sh` cleans everything up and
+  checks afterwards.
 
-## Voraussetzungen
+## Requirements
 
-- Ein Linux-Host oder LXC mit **systemd** und **Node.js ≥ 18**, am besten derselbe, auf dem MeshMonitor läuft.
-  Der Dienst läuft als `DynamicUser` in einer Sandbox, mit höchstens 192 MB RAM.
-- **MeshMonitor ab 4.14** mit einem **API-Token** (Benutzermenü → *API Token*). Empfohlen ist 4.17.3 oder neuer,
-  dann gelten die genauen Nachrichtenlängen der Firmware und DMs zeigen ihre Repeater-Echos.
-- **HTTPS** für die volle PWA (installieren, Push, Standort), z. B. per Cloudflare-Tunnel, Caddy/Nginx mit
-  Let's Encrypt oder Tailscale. Im LAN über `http://` läuft die App auch, nur ohne diese drei Funktionen.
+- A Linux host or LXC with **systemd** and **Node.js ≥ 18**, ideally the same one MeshMonitor runs on.
+  The service runs as a `DynamicUser` in a sandbox, with at most 192 MB RAM.
+- **MeshMonitor 4.14 or newer** with an **API token** (user menu → *API Token*). 4.17.3 or newer is recommended:
+  then the exact firmware message lengths apply and DMs show their repeater echoes.
+- **HTTPS** for the full PWA (install, push, location), e.g. via a Cloudflare tunnel, Caddy/Nginx with
+  Let's Encrypt or Tailscale. Over `http://` in the LAN the app works too, just without those three features.
 
 <details>
-<summary><b>Welche Rechte braucht der Token?</b></summary>
+<summary><b>Which permissions does the token need?</b></summary>
 
-Der Token hat die Rechte des Benutzers, der ihn erstellt hat. Vergib die Rechte also am Benutzer, ein neuer Token
-ist dafür nicht nötig. Fehlt ein Recht, sagt die App das an der jeweiligen Stelle; alles andere funktioniert weiter.
+The token has the permissions of the user who created it. So grant the permissions to the user; you don't need a
+new token. If a permission is missing, the app says so in the relevant place; everything else keeps working.
 
-| Funktion | Recht in MeshMonitor |
+| Feature | Permission in MeshMonitor |
 |---|---|
-| Nachrichten lesen / senden, Resend, Reaktionen, Room-Server, Repeater-Status | `messages` lesen / schreiben |
-| Kontakte, Karte, Telemetrie-Verlauf | `nodes` lesen |
-| Favoriten, Direkt-Ping, Pfad zurücksetzen / suchen | `nodes` schreiben |
-| Advert senden | `connection` schreiben |
-| Traceroute | `traceroute` lesen + schreiben |
-| Scope-Liste und Standard-Scope | `configuration` lesen |
-| Live-Karte, Paket-Analyzer, Reach | `packetmonitor` lesen |
+| Read / send messages, resend, reactions, room servers, repeater status | `messages` read / write |
+| Contacts, map, telemetry history | `nodes` read |
+| Favourites, direct ping, reset / discover path | `nodes` write |
+| Send advert | `connection` write |
+| Traceroute | `traceroute` read + write |
+| Scope list and default scope | `configuration` read |
+| Live map, packet analyzer, reach | `packetmonitor` read |
 
 </details>
 
 ## Installation
 
-Auf dem Server bzw. LXC, auf dem MeshMonitor läuft, als root:
+On the server or LXC where MeshMonitor runs, as root:
 
 ```bash
-apt install -y git nodejs        # falls noch nicht vorhanden (Node.js ≥ 18)
+apt install -y git nodejs        # if not installed yet (Node.js ≥ 18)
 git clone https://github.com/Felliglanz/Meshlink-Chat.git /root/meshlink-chat
 cd /root/meshlink-chat && ./install.sh
 ```
 
-`install.sh` fragt nach der MeshMonitor-URL (meist wird sie erkannt), dem API-Token, einem App-Passwort, der
-Bind-Adresse und dem Port. Dann kopiert es das Programm nach `/opt/meshlink-chat`, richtet den Dienst
-`meshlink-chat` ein und testet die Verbindung. Der Clone-Ordner ist nur die Quelle, laufen tut alles aus `/opt`.
+`install.sh` asks for the MeshMonitor URL (usually detected), the API token, an app password, the bind address
+and the port. It speaks German if the system language is German, otherwise English
+(to choose: `MESHLINK_LANG=en ./install.sh`). It then copies the program to `/opt/meshlink-chat`, sets up the
+`meshlink-chat` service and tests the connection. The clone folder is only the source; everything runs from `/opt`.
 
-### Danach
+### Afterwards
 
-1. **HTTPS davorschalten**: Tunnel oder Reverse-Proxy auf `http://<server>:8090`. Wenn er auf demselben Host läuft,
-   kannst du bei der Installation `127.0.0.1` als Bind-Adresse wählen. Ein Zugangsschutz davor, z. B. Cloudflare
-   Access, schadet nie.
-2. **Auf dem Handy öffnen**, anmelden, *Zum Home-Bildschirm hinzufügen*.
-3. **Push einschalten**: ☰ → Einstellungen → Push-Benachrichtigungen.
+1. **Put HTTPS in front**: tunnel or reverse proxy to `http://<server>:8090`. If it runs on the same host, you can
+   choose `127.0.0.1` as the bind address during installation. Access protection in front, e.g. Cloudflare Access,
+   never hurts.
+2. **Open it on your phone**, log in, *Add to Home Screen*.
+3. **Turn on push**: ☰ → Settings → Push notifications.
 
-### Umstieg vom alten Namen „MeshChat“
+### Switching from the old name "MeshChat"
 
-Läuft noch eine ältere Version unter `/opt/meshchat`, erkennt `install.sh` das. Es bietet an, die Konfiguration
-(Token, Passwort, Port) zu übernehmen und die alte Installation zu entfernen. Danach musst du Push auf den Geräten
-einmal neu einschalten und die App auf dem Home-Bildschirm neu anlegen, weil sich der Name geändert hat.
+If an older version is still running under `/opt/meshchat`, `install.sh` detects it. It offers to take over the
+configuration (token, password, port) and remove the old installation. Afterwards turn push on again once on each
+device and re-add the app to the home screen, because the name changed.
 
-## Update, Wartung, Entfernen
+## Update, maintenance, removal
 
 ```bash
-cd /root/meshlink-chat && git pull && ./install.sh --update   # Update (.env bleibt)
-/opt/meshlink-chat/uninstall.sh                               # alles restlos entfernen (fragt vorher)
-systemctl status meshlink-chat                                # läuft der Dienst?
-journalctl -u meshlink-chat -f                                # Log live ansehen
-/opt/meshlink-chat/install.sh --check                         # Verbindungstest: Quelle, MeshMonitor-Version, Längen
+cd /root/meshlink-chat && git pull && ./install.sh --update   # update (.env is kept)
+/opt/meshlink-chat/uninstall.sh                               # remove everything (asks first)
+systemctl status meshlink-chat                                # is the service running?
+journalctl -u meshlink-chat -f                                # follow the log
+/opt/meshlink-chat/install.sh --check                         # connection test: source, MeshMonitor version, lengths
 ```
 
-Offene Apps laden sich nach einem Update von selbst neu. Wenn du nur die Konfiguration ändern willst:
-`nano /opt/meshlink-chat/.env` und danach `/opt/meshlink-chat/install.sh --update`. Zurück zu einer älteren Version:
-`git checkout <tag oder commit>` und dann `./install.sh --update`.
+Open apps reload by themselves after an update. If you only want to change the configuration:
+`nano /opt/meshlink-chat/.env` and then `/opt/meshlink-chat/install.sh --update`. Back to an older version:
+`git checkout <tag or commit>` and then `./install.sh --update`.
 
-`uninstall.sh` entfernt den Dienst, `/opt/meshlink-chat` und die Push-Abos und prüft am Ende, dass nichts übrig ist.
-Den Clone-Ordner und außerhalb räumst du selbst auf: den HTTPS-Eintrag, den API-Token in MeshMonitor und das App-Symbol
-auf dem Handy.
+`uninstall.sh` removes the service, `/opt/meshlink-chat` and the push subscriptions and checks at the end that
+nothing is left. You clean up the clone folder and anything outside yourself: the HTTPS entry, the API token in
+MeshMonitor and the app icon on your phone.
 
 <details>
-<summary><b>Alternative: vom PC aus mit <code>scripts/deploy.sh</code></b></summary>
+<summary><b>Alternative: from your PC with <code>scripts/deploy.sh</code></b></summary>
 
-Für Entwicklung oder wenn auf dem Server kein git sein soll: Lege im Projektordner eine `.deploy.env` an
-(wird nie eingecheckt):
+For development or if git shouldn't be on the server: create a `.deploy.env` in the project folder
+(never committed):
 
 ```bash
-MESHLINK_HOST=root@192.168.1.50      # dein Server/LXC
-MESHLINK_KEY=~/.ssh/id_ed25519       # optional: SSH-Schlüssel
+MESHLINK_HOST=root@192.168.1.50      # your server/LXC
+MESHLINK_KEY=~/.ssh/id_ed25519       # optional: SSH key
 ```
 
 ```bash
-scripts/deploy.sh install    # erstmals: überträgt den Code und startet install.sh (fragt alles ab)
-scripts/deploy.sh            # Update (.env bleibt)
-scripts/deploy.sh check      # Verbindungstest: Quelle, MeshMonitor-Version, Nachrichtenlängen
-scripts/deploy.sh status     # Dienststatus
-scripts/deploy.sh logs       # letzte Log-Zeilen
-scripts/deploy.sh uninstall  # restlos entfernen
+scripts/deploy.sh install    # first time: uploads the code and runs install.sh (asks everything)
+scripts/deploy.sh            # update (.env is kept)
+scripts/deploy.sh check      # connection test: source, MeshMonitor version, message lengths
+scripts/deploy.sh status     # service status
+scripts/deploy.sh logs       # last log lines
+scripts/deploy.sh uninstall  # remove everything
 ```
 
-Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht nichts auf den Server, wenn etwas kaputt ist.
+Before each upload the script checks the syntax of all files and the language files. Nothing goes to the server
+if something is broken.
 
 </details>
 
-## Bedienung im Detail
+## Using it in detail
 
 <details>
 <summary><b>💬 Chats</b></summary>
 
-- **Lange drücken** (am PC: Rechtsklick) auf eine Nachricht: Reaktion, Antworten, Kopieren, DM, Details.
-  **Doppeltippen**: ❤️. **Auf eine Reaktion tippen**: dieselbe Reaktion senden. Reaktionen gehen ins Mesh und lassen
-  sich nicht zurücknehmen (bei MeshCore muss „Reaktionen senden“ in MeshMonitor für die Quelle erlaubt sein).
-- **📡 n** unter eigenen Kanalnachrichten zeigt, wie viele Repeater sie hörbar weitergesendet haben. Antippen zeigt sie
-  mit Position im Weg und SNR. Einen SNR-Wert gibt es nur für die Station, die dein Gerät direkt gehört hat. Die übrigen
-  stehen nur im Weg.
-- **Eigene DM:** 📡 erscheint, sobald MeshMonitor Repeater-Echos gehört hat. Nach der Zustellung (✓✓) steht in den
-  Details der **Weg zum Empfänger**, den der Empfänger mit der Bestätigung zurückmeldet. Eine eigene DM lange
-  drücken bietet **Pfad zurücksetzen** und, solange sie nicht zugestellt ist, **per Flood neu senden**.
-- **Empfangen:** `↳ 2 Hops · 1B` zeigt den Weg zu dir und die Hash-Größe (1/2/3 Byte je Repeater-Kennung).
-  „Weg auf Karte zeigen“ zeigt die Strecke mit Luftlinie je Teilstück.
-- **↻ Nochmal** (wenn noch kein Repeater sie gehört hat bzw. eine DM unbestätigt ist; ab 30 s, max. 3×, bis 1 Std.):
-  ein echtes Resend über MeshMonitor, also gleiche Nachricht, gleicher Zeitstempel und keine Dopplung beim Empfänger.
-- **Scope je Kanal:** steht im Chatkopf und neben dem Eingabefeld, antippen zum Wechseln. Die Wahl gilt nur für
-  diese App auf diesem Gerät.
-- **Länge:** Der Zähler zählt Bytes. MeshCore ab MeshMonitor 4.17.3: DM 160, Kanal 160 minus Länge deines
-  Node-Namens minus 2 (ältere Versionen: DM 150, Kanal 130 bzw. 120 mit Scope). Meshtastic: 200. Lange Texte werden
-  **nicht** geteilt.
-- **🔔 im Chatkopf:** pro Chat *Standard*, *Alle Nachrichten* oder *Stumm*.
-- **Links und Koordinaten** sind antippbar; Koordinaten öffnen die Karte mit Entfernung zu dir. **📍** fügt deinen
-  Standort ein (braucht HTTPS).
-- Der **Gelesen-Stand** gleicht sich zwischen Handy und PC ab.
+- **Long press** (desktop: right click) on a message: reaction, reply, copy, DM, details.
+  **Double tap**: ❤️. **Tap a reaction**: send the same reaction. Reactions go into the mesh and cannot be taken
+  back (with MeshCore, "send reactions" must be allowed for the source in MeshMonitor).
+- **📡 n** under your own channel messages shows how many repeaters were heard forwarding it. Tap it to see them
+  with their position in the path and SNR. An SNR value only exists for the station your device heard directly.
+  The others only appear in the path.
+- **Your own DM:** 📡 appears once MeshMonitor has heard repeater echoes. After delivery (✓✓) the details show the
+  **path to the recipient** that the recipient reports back with the acknowledgement. Long-pressing your own DM
+  offers **reset path** and, as long as it isn't delivered, **resend by flood**.
+- **Received:** `↳ 2 hops · 1B` shows the path to you and the hash size (1/2/3 bytes per repeater ID).
+  "Show path on map" shows the route with the straight-line distance of each leg.
+- **↻ Again** (if no repeater has heard it yet or a DM is unacknowledged; after 30 s, max. 3×, up to 1 h):
+  a real resend via MeshMonitor, i.e. same message, same timestamp and no duplicate at the recipient.
+- **Scope per channel:** shown in the chat header and next to the input field, tap to change. The choice only
+  applies to this app on this device.
+- **Length:** the counter counts bytes. MeshCore with MeshMonitor 4.17.3+: DM 160, channel 160 minus the length of
+  your node name minus 2 (older versions: DM 150, channel 130 or 120 with scope). Meshtastic: 200. Long texts are
+  **not** split.
+- **🔔 in the chat header:** per chat *Default*, *All messages* or *Muted*.
+- **Links and coordinates** are tappable; coordinates open the map with the distance to you. **📍** inserts your
+  location (needs HTTPS).
+- The **read state** is synced between phone and PC.
 
 </details>
 
 <details>
-<summary><b>🗺️ Karte</b></summary>
+<summary><b>🗺️ Map</b></summary>
 
-- Nodes mit Position aus den letzten 24 h / 3 / 7 / 30 Tagen; jedes Popup zeigt Entfernung und Richtung von dir.
-- **〰 Linien:** im Weg empfangener Nachrichten gesehen (durchgezogen), direkt gehört (gestrichelt),
-  Repeater-Nachbarn (gepunktet).
-- **Kartenstil** (oben rechts): Automatisch, OpenStreetMap, Dunkel, Dunkelgrau, Hellgrau, Humanitarian, Satellit,
-  Topografisch. Es sind nur Dienste ohne API-Schlüssel dabei; die Kacheln lädt dein Gerät direkt vom Anbieter.
-- **Vollbild** (darunter): zurück per Knopf, Zurück-Geste oder Esc.
-- **⚡ Live:** Der Server fragt das Paket-Log alle 3 s ab, aber nur, solange eine Karte mit Live offen ist. Das ist ein
-  Abruf für alle Geräte. Farben: Advert, Kanal, DM, ACK, Pfad, Trace, Abfrage. Die Spur bleibt ~12 s antippbar.
-- **Fokus:** Zeigt die Karte einen Weg, eine Traceroute, Nachbarn oder Reach, siehst du nur die beteiligten Nodes,
-  und Live pausiert. „Alle Nodes“ blendet den Rest wieder ein, ✕ beendet den Fokus.
-- **🧭 Trace:** Repeater der Reihe nach antippen (der letzte ist das Ziel), dann „Senden“. Die Trace läuft hin und
-  zurück, mit SNR je Strecke. Dafür setzt MeshLink Chat kurz den gespeicherten Pfad des Ziels und stellt ihn danach sofort
-  wieder her. Das Ziel muss ein Kontakt deines Companions sein.
-
-</details>
-
-<details>
-<summary><b>🔬 Paket-Analyzer und Reach</b></summary>
-
-- **Paket-Analyzer** (☰ → Werkzeuge): Filter nach Typ und Route; die Suche nimmt Text, Namen oder eine
-  Repeater-Kennung (`b3f8` = „über diesen Repeater“). ⚡ Live holt alle 4 s Neues dazu. `×3` heißt: derselbe Inhalt
-  kam über drei Wege an. Das Detail zerlegt das Paket Byte für Byte; ein Feld antippen markiert es im Hex-Block.
-  Verschlüsselte Inhalte bleiben verschlüsselt, Kanaltext erscheint, wenn MeshMonitor den Kanal kennt. Gefiltert wird
-  bei MeshMonitor: höchstens 100 Pakete je Abruf, 500 in der App, beim Verlassen ist alles weg.
-- **Reach** (Node-Seite eines Repeaters): Steht im Weg eines Pakets „A › X › B“, dann hat X A gehört und B hat X
-  gehört. Steht X vorne, hörte er den Absender; steht er hinten, hörst du ihn. Gezählt werden nur Flood-Pakete
-  (bei direkt gerouteten steht im Pfad die geplante Route). **Grenzen:** Sichtbar sind nur Wege, die bei dir enden;
-  entfernte Nachbarn fehlen deshalb oft. `?` heißt, die Kennung passt zu mehreren Nodes; dafür wird keine Position
-  geraten. Auf der Karte: grün gegenseitig, blau „er hört sie“, orange „sie hören ihn“. Eine Linie antippen zeigt beide
-  Richtungen mit Häufigkeit.
+- Nodes with a position from the last 24 h / 3 / 7 / 30 days; every popup shows distance and direction from you.
+- **〰 Links:** seen in the path of received messages (solid), heard directly (dashed), repeater neighbours (dotted).
+- **Map style** (top right): Automatic, OpenStreetMap, Dark, Dark grey, Light grey, Humanitarian, Satellite,
+  Topographic. Only services without an API key are included; your device loads the tiles directly from the
+  provider.
+- **Full screen** (below it): back via the button, back gesture or Esc.
+- **⚡ Live:** the server polls the packet log every 3 s, but only while a map with live is open. That's one poll
+  for all devices. Colours: advert, channel, DM, ACK, path, trace, query. The trail stays tappable for ~12 s.
+- **Focus:** when the map shows a path, a traceroute, neighbours or reach, you only see the nodes involved and
+  live pauses. "All nodes" shows the rest again, ✕ ends the focus.
+- **🧭 Trace:** tap repeaters in order (the last one is the target), then "Send". The trace goes there and back,
+  with SNR per leg. For this, MeshLink Chat briefly sets the stored path of the target and restores it right
+  afterwards. The target must be a contact of your companion.
 
 </details>
 
 <details>
-<summary><b>📇 Kontakte, Repeater, Statistik und mehr</b></summary>
+<summary><b>🔬 Packet analyzer and reach</b></summary>
 
-- **Kontakte** (👥): Favoriten / Alle / Repeater. ☆/★ setzt den Favoriten in MeshMonitor und auf dem Companion.
-- **Node-Seite:** Status per Funk abfragen (max. 1×/Min.), Verläufe (Akku, Rauschen, Pakete), Traceroute,
-  gespeicherter Pfad, Direkt-Ping, Pfad zurücksetzen/suchen, Nachbarn, Reach. Alles lässt sich auch auf der Karte zeigen.
-- **Repeater-Übersicht:** alle Favoriten-Repeater mit Ampel, zuletzt gehört, Akku, Rauschen, SNR und Laufzeit.
-- **Repeater-Wächter** (Einstellungen): Push, wenn ein Favorit 1–24 Std. still ist oder sein Akku unter 3,5/3,6/3,7 V
-  fällt, und eine Entwarnung, wenn es wieder passt.
-- **Statistik:** Heute, Gestern oder 7 Tage, bei jedem Öffnen frisch berechnet. Paketzahlen reichen nur so weit wie das
-  Paket-Log von MeshMonitor (Standard 24 h / 1000 Pakete). **⤓ PDF** öffnet den Druckdialog mit A4-Layout.
-- **Erwähnungen:** alle `@`-Erwähnungen der letzten 7 Tage über alle Kanäle.
-- **Room-Server:** Beiträge lesen auch ohne Anmeldung, zum Schreiben anmelden.
-- **Meine weiteren Nodes:** eigene Zweitgeräte. Sie erscheinen als „via …“, ohne Zähler und ohne Push.
-- **Quelle:** erscheint bei mehreren Quellen in MeshMonitor; dauerhaft per `MM_SOURCE` in der `.env`.
-- **Am PC** (ab 1000 px Breite): Liste und Chat nebeneinander, 😊-Knopf, Enter sendet, Umschalt+Enter macht eine neue Zeile.
+- **Packet analyzer** (☰ → Tools): filter by type and route; the search takes text, names or a repeater ID
+  (`b3f8` = "via this repeater"). ⚡ Live fetches new packets every 4 s. `×3` means: the same content arrived via
+  three paths. The detail view breaks the packet down byte by byte; tapping a field highlights it in the hex block.
+  Encrypted content stays encrypted, channel text appears if MeshMonitor knows the channel. Filtering happens in
+  MeshMonitor: at most 100 packets per request, 500 in the app, everything is gone when you leave.
+- **Reach** (node page of a repeater): if a packet's path reads "A › X › B", then X heard A and B heard X. If X is
+  first, it heard the sender; if it's last, you hear it. Only flood packets count (for directly routed ones the
+  path holds the planned route). **Limits:** only paths ending at you are visible, so distant neighbours are often
+  missing. `?` means the ID matches several nodes; no position is guessed for those. On the map: green mutual,
+  blue "it hears them", orange "they hear it". Tap a line to see both directions with their frequency.
 
 </details>
 
-## Wenn etwas hakt
+<details>
+<summary><b>📇 Contacts, repeaters, statistics and more</b></summary>
 
-| Symptom | Ursache / Abhilfe |
+- **Contacts** (👥): Favourites / All / Repeaters. ☆/★ sets the favourite in MeshMonitor and on the companion.
+- **Node page:** request status over the air (max. 1×/min), history (battery, noise, packets), traceroute,
+  stored path, direct ping, reset/discover path, neighbours, reach. Everything can also be shown on the map.
+- **Repeater overview:** all favourite repeaters with a status light, last heard, battery, noise, SNR and uptime.
+- **Repeater watch** (Settings): push when a favourite has been silent for 1–24 h or its battery drops below
+  3.5/3.6/3.7 V, and an all-clear when it's fine again.
+- **Statistics:** today, yesterday or 7 days, calculated fresh each time you open it. Packet numbers only go back
+  as far as MeshMonitor's packet log (default 24 h / 1000 packets). **⤓ PDF** opens the print dialog with an A4
+  layout.
+- **Mentions:** all `@` mentions of the last 7 days across all channels.
+- **Room servers:** read posts even without logging in, log in to write.
+- **My other nodes:** your own second devices. They appear as "via …", without counter and without push.
+- **Source:** appears if MeshMonitor has several sources; set permanently with `MM_SOURCE` in `.env`.
+- **Language** (Settings): *Automatic* follows the browser, otherwise English or German fixed. Applies to this
+  device only; the choice is a cookie in the browser, nothing is stored on the server.
+- **On desktop** (from 1000 px width): list and chat side by side, 😊 button, Enter sends, Shift+Enter adds a new
+  line.
+
+</details>
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
 |---|---|
-| „MeshMonitor nicht erreichbar“ | `MM_URL` falsch oder MeshMonitor aus → `/opt/meshlink-chat/install.sh --check` |
-| „MeshMonitor lehnt den API-Token ab“ | Token widerrufen oder abgelaufen → neuen in die `.env` |
-| „Keine Berechtigung …“ | dem Token-Benutzer das genannte Recht geben (Tabelle oben) |
-| Kein Push | nur über HTTPS; im Menü aus- und wieder einschalten, „Test-Benachrichtigung“ nutzen |
-| Jede DM kommt doppelt als Push | MeshMonitor meldet DMs selbst → dort bei der Quelle unter *Notifications* „Direct messages and room posts“ aus |
-| Karte bleibt grau | das Gerät erreicht den Kachel-Anbieter nicht → anderen Kartenstil wählen |
+| "MeshMonitor unreachable" | `MM_URL` wrong or MeshMonitor down → `/opt/meshlink-chat/install.sh --check` |
+| "MeshMonitor rejects the API token" | token revoked or expired → put a new one in `.env` |
+| "No permission …" | give the token user the named permission (table above) |
+| No push | HTTPS only; turn it off and on again in the menu, use "Send test notification" |
+| Every DM arrives twice as push | MeshMonitor notifies DMs itself → turn off "Direct messages and room posts" under *Notifications* for the source there |
+| Map stays grey | the device can't reach the tile provider → pick another map style |
 
-Hat sich nach einem MeshMonitor-Update ein Datenformat geändert, zeigt `/api/debug` (angemeldet, im Browser) die rohen
-Antworten von MeshMonitor.
+If a data format changed after a MeshMonitor update, `/api/debug` (logged in, in the browser) shows MeshMonitor's
+raw responses.
 
-## Sicherheit
+## Security
 
-- Login mit App-Passwort, Sitzungs-Cookie (HttpOnly, SameSite=Strict, 30 Tage). Nach 8 Fehlversuchen je Adresse
-  (40 insgesamt) ist der Login 15 Minuten gesperrt.
-- Der Dienst läuft ohne Rechte in einer systemd-Sandbox und darf nur in sein Zustandsverzeichnis schreiben.
-- Content-Security-Policy erlaubt nur die eigenen Dateien und die Kachel-Anbieter. Live-Verbindungen sind auf 50 begrenzt.
-- Bitte **nicht direkt ins Internet** stellen, sondern nur hinter HTTPS-Proxy oder Tunnel, am besten mit Zugangsschutz.
+- Login with the app password, session cookie (HttpOnly, SameSite=Strict, 30 days). After 8 failed attempts per
+  address (40 in total) login is locked for 15 minutes.
+- The service runs without privileges in a systemd sandbox and may only write to its state directory.
+- The Content Security Policy only allows the app's own files and the tile providers. Live connections are limited
+  to 50.
+- Please **don't expose it directly to the internet**, only behind an HTTPS proxy or tunnel, ideally with access
+  protection.
 
-## Entwickeln
+## Adding a language
+
+All texts live in `public/i18n/`, one file per language (`en.json`, `de.json`). For a new language:
+
+1. Copy `public/i18n/en.json`, e.g. to `public/i18n/fr.json` (file name = language code).
+2. Adjust `_meta` at the top: `"name": "Français"` (how it appears in the picker) and `"locale": "fr-FR"`
+   (number and date format).
+3. Translate the texts. Leave placeholders like `{name}` or `{n}` unchanged. Entries with `"one"`/`"other"` are
+   plural forms; languages with more forms may add `"few"`, `"many"` etc.
+   ([Intl.PluralRules](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/PluralRules)).
+   Simple HTML like `<b>` or `<br>` may stay.
+4. Check it: `node scripts/check-i18n.js`. It reports wrong placeholders and lists missing texts.
+5. Roll it out like an update (`./install.sh --update`). The language then shows up in the picker by itself.
+
+If a text is missing in a language, the app shows the English one in that place. So you can also start with a
+partial translation.
+
+## Development
 
 ```bash
 MOCK_PROTO=meshcore MOCK_MEPOS=1 node scripts/mock-meshmonitor.js &
 MM_URL=http://127.0.0.1:18080 MM_TOKEN=mm_v1_test APP_PASSWORD=testtest123 PORT=18090 node server/server.js
-# → http://127.0.0.1:18090  (Passwort testtest123)
+# → http://127.0.0.1:18090  (password testtest123)
 ```
 
-Der Mock ist ein Fake-MeshMonitor mit erfundenen Nodes, Nachrichten und Live-Paketen samt Rohdaten.
-Weitere Schalter: `MOCK_NODES=300` (viele Nodes), `MOCK_LIVE=0` (ohne Live-Verkehr), `MOCK_MMVER=4.17.2`
-(ältere MeshMonitor-Version).
+The mock is a fake MeshMonitor with made-up nodes, messages and live packets including raw data.
+More switches: `MOCK_NODES=300` (many nodes), `MOCK_LIVE=0` (no live traffic), `MOCK_MMVER=4.17.2`
+(older MeshMonitor version).
 
-| Pfad | Inhalt |
+Texts never go straight into the code: in the app use `T('area.name', { … })`, on the server likewise via
+`i18n.translator()`. Add new entries to `en.json` and `de.json` and check with `node scripts/check-i18n.js`
+(`scripts/deploy.sh` does this before every upload).
+
+| Path | Contents |
 |---|---|
-| `server/server.js` | Node-Server: Login, Polling, Live-Stream (SSE), alle `/api/…`-Endpunkte. `normNode()`/`normMsg()` kennen das Datenformat von MeshMonitor. |
-| `server/push.js` | Web Push ohne Bibliothek (VAPID aus `SESSION_SECRET` abgeleitet) |
-| `public/` | die PWA: `app.js`, `style.css`, `sw.js`, Manifest, Icons, Leaflet |
-| `install.sh` / `uninstall.sh` | Einrichten, Aktualisieren, Entfernen auf dem Server |
-| `scripts/deploy.sh` | vom PC aus installieren, aktualisieren, prüfen |
-| `scripts/mock-meshmonitor.js` | Fake-MeshMonitor für die Entwicklung |
-| `scripts/make-icons.py` | erzeugt die PNG-Icons |
+| `server/server.js` | Node server: login, polling, live stream (SSE), all `/api/…` endpoints. `normNode()`/`normMsg()` know MeshMonitor's data format. |
+| `server/push.js` | Web push without a library (VAPID derived from `SESSION_SECRET`) |
+| `server/i18n.js` | loads the language files, picks the language per device (cookie `ml_lang`, otherwise browser language) |
+| `public/` | the PWA: `app.js`, `style.css`, `sw.js`, manifest, icons, Leaflet |
+| `public/i18n/` | language files, one per language |
+| `install.sh` / `uninstall.sh` | set up, update, remove on the server |
+| `scripts/deploy.sh` | install, update, check from your PC |
+| `scripts/mock-meshmonitor.js` | fake MeshMonitor for development |
+| `scripts/check-i18n.js` | checks the language files against the code |
+| `scripts/make-icons.py` | generates the PNG icons |
 
-## Lizenz
+## License
 
-MIT, siehe [LICENSE](LICENSE). Enthält [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`).
-MeshLink Chat ist ein eigenständiges Projekt und gehört weder zu MeshMonitor noch zu MeshCore oder Meshtastic.
+MIT, see [LICENSE](LICENSE). Includes [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`).
+MeshLink Chat is an independent project and is not affiliated with MeshMonitor, MeshCore or Meshtastic.

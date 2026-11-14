@@ -4,7 +4,8 @@
  * - VAPID-Schlüssel werden deterministisch aus SESSION_SECRET abgeleitet -> nichts zu speichern.
  * - Abonnements (max. 10) liegen in $STATE_DIRECTORY/push.json, sonst nur im Speicher.
  *   Je Abo (= Gerät) zusätzlich die Chat-Einstellungen "alle Nachrichten" / "stumm" (max. 100 Einträge)
- *   und die Einstellung des Repeater-Wächters (an/aus, Stunden ohne Empfang, Akku-Schwelle).
+ *   und die Einstellung des Repeater-Wächters (an/aus, Stunden ohne Empfang, Akku-Schwelle)
+ *   sowie die Sprache des Geräts (Sprachcode, z. B. "de"), damit Push-Texte in seiner Sprache kommen.
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -28,6 +29,8 @@ function cleanPrefs(p) {
   }
   return out;
 }
+// Sprachcode wie "de", "en" oder "pt-br"; alles andere wird verworfen
+const cleanLang = (l) => (typeof l === 'string' && /^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i.test(l) ? l.toLowerCase() : null);
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const unb64u = (s) => Buffer.from(String(s), 'base64url');
 
@@ -50,7 +53,7 @@ function createPush({ secret, contact, stateDir, log = console }) {
   const file = stateDir ? path.join(stateDir, 'push.json') : null;
   let subs = [];
   if (file) {
-    try { subs = JSON.parse(fs.readFileSync(file, 'utf8')).filter((s) => s?.endpoint && s?.keys?.p256dh && s?.keys?.auth).slice(-MAX_SUBS).map((s) => ({ ...s, prefs: cleanPrefs(s.prefs), watch: cleanWatch(s.watch) })); } catch { subs = []; }
+    try { subs = JSON.parse(fs.readFileSync(file, 'utf8')).filter((s) => s?.endpoint && s?.keys?.p256dh && s?.keys?.auth).slice(-MAX_SUBS).map((s) => ({ ...s, prefs: cleanPrefs(s.prefs), watch: cleanWatch(s.watch), lang: cleanLang(s.lang) })); } catch { subs = []; }
   }
   function persist() {
     if (!file) return;
@@ -60,12 +63,12 @@ function createPush({ secret, contact, stateDir, log = console }) {
       fs.renameSync(tmp, file);
     } catch (e) { log.error('[push] speichern fehlgeschlagen:', e.message); }
   }
-  // prefs/watch weggelassen = bisherige Einstellungen dieses Geräts behalten
-  function add(sub, prefs, watch) {
-    if (!sub?.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys?.p256dh || !sub.keys?.auth) throw new Error('Ungültiges Abo');
+  // prefs/watch/lang weggelassen = bisherige Einstellungen dieses Geräts behalten
+  function add(sub, prefs, watch, lang) {
+    if (!sub?.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys?.p256dh || !sub.keys?.auth) throw new Error('invalid subscription');
     const old = subs.find((s) => s.endpoint === sub.endpoint);
     subs = subs.filter((s) => s.endpoint !== sub.endpoint);
-    subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, added: old?.added || Date.now(), prefs: prefs === undefined ? old?.prefs || {} : cleanPrefs(prefs), watch: watch === undefined ? old?.watch || cleanWatch(null) : cleanWatch(watch) });
+    subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, added: old?.added || Date.now(), prefs: prefs === undefined ? old?.prefs || {} : cleanPrefs(prefs), watch: watch === undefined ? old?.watch || cleanWatch(null) : cleanWatch(watch), lang: cleanLang(lang) || old?.lang || null });
     subs = subs.slice(-MAX_SUBS);
     persist();
   }
@@ -131,9 +134,10 @@ function createPush({ secret, contact, stateDir, log = console }) {
     return { ok: res.ok, status: res.status };
   }
 
-  // skip(sub) entscheidet je Gerät (App gerade offen, Chat stumm, …)
+  // skip(sub) entscheidet je Gerät (App gerade offen, Chat stumm, …); data darf eine Funktion (sub) => Inhalt sein,
+  // dann bekommt jedes Gerät die Texte in seiner Sprache
   async function send(data, skip = () => false) {
-    const results = await Promise.allSettled(subs.filter((s) => !skip(s)).map((s) => sendOne(s, data)));
+    const results = await Promise.allSettled(subs.filter((s) => !skip(s)).map((s) => sendOne(s, typeof data === 'function' ? data(s) : data)));
     return results.map((r) => (r.status === 'fulfilled' ? r.value : { ok: false, error: r.reason?.message }));
   }
 
@@ -141,7 +145,7 @@ function createPush({ secret, contact, stateDir, log = console }) {
     publicKey,
     persistent: Boolean(file),
     count: () => subs.length,
-    list: () => subs.map((s) => ({ endpoint: s.endpoint, watch: s.watch || cleanWatch(null) })),
+    list: () => subs.map((s) => ({ endpoint: s.endpoint, watch: s.watch || cleanWatch(null), lang: s.lang || null })),
     add,
     remove,
     send,

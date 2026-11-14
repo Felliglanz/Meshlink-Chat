@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,6 +31,7 @@ const cfg = {
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const { createPush } = require('./push');
+const i18n = require('./i18n');
 const push = createPush({
   secret: cfg.secret,
   contact: process.env.PUSH_CONTACT || 'mailto:meshlink-chat@example.invalid',
@@ -124,7 +125,7 @@ function normChannel(c, i) {
   const index = Number(c.index ?? c.channelIndex ?? c.slot ?? c.id ?? i);
   const role = c.role;
   if (role === 0 || role === 'DISABLED' || c.enabled === false) return null;
-  return { index, name: str(c.displayName ?? c.name) || (index === 0 ? 'Primär' : `Kanal ${index}`), scope: c.scope || null };
+  return { index, name: str(c.displayName ?? c.name), scope: c.scope || null }; // ohne Namen: die App zeigt „Primär“/„Kanal n“ in ihrer Sprache
 }
 
 function deliveryState(m) {
@@ -254,7 +255,7 @@ function setStatus(connected, error) {
 
 async function resolveSource() {
   const list = asArray(await mm('/sources'), 'sources');
-  if (!list.length) throw new Error('MeshMonitor meldet keine Quellen (sources)');
+  if (!list.length) throw new Error('MeshMonitor: no sources');
   const wanted = state.activeSourceId || cfg.sourceId;
   const pick = (wanted && list.find((s) => str(s.id) === wanted)) || list.find((s) => s.isPrimary) || list[0];
   state.sources = list.filter((s) => s.enabled !== false).map((s) => ({
@@ -563,10 +564,11 @@ function nodeByName(name) {
 }
 const posOf = (n) => (n && n.lat != null && n.lon != null ? [n.lat, n.lon] : null);
 
-function mmError(res, e) {
+const mmErrT = i18n.translator(i18n.DEFAULT);
+function mmError(res, e, T = mmErrT) {
   console.error('[mm]', e.status || '', e.code || '', e.message);
   const status = e.status === 401 ? 502 : e.status && e.status < 500 ? e.status : 502; // 401 hieße für die App „abgemeldet“
-  return send(res, status, { error: e.status === 401 ? 'MeshMonitor lehnt den API-Token ab' : e.message, code: e.code || null, retryAfter: e.body?.retryAfter ?? e.body?.retryAfterSeconds ?? null });
+  return send(res, status, { error: e.status === 401 ? T('srv.tokenRejected') : e.message, code: e.code || null, retryAfter: e.body?.retryAfter ?? e.body?.retryAfterSeconds ?? null });
 }
 
 // Verbindungen für die Karte: aus den Wegen empfangener Nachrichten (beobachtet) und
@@ -817,7 +819,7 @@ function finishMsgAgg(g, starts, reactionsKnown) {
     total: g.total, channel: g.channel, dm: g.dm, mine: g.mine, received: g.received, mentions: g.mentions,
     reactions: reactionsKnown ? g.reactions : null, perBucket: g.perBucket, truncated: g.truncated,
     senders: g.senders.size,
-    channels: top(g.chans, 8).map(([index, n]) => ({ index, name: state.channels.find((c) => c.index === index)?.name || `Kanal ${index}`, n })),
+    channels: top(g.chans, 8).map(([index, n]) => ({ index, name: state.channels.find((c) => c.index === index)?.name || '', n })),
     topSenders: top(g.senders, 8).map(([name, n]) => ({ name, n })),
     emojis: reactionsKnown ? top(g.emojis, 8).map(([e, n]) => ({ e, n })) : [],
     scopes: top(g.scopes, 6).map(([label, n]) => ({ label, n })),
@@ -868,7 +870,7 @@ async function eachReadableChannel(fn) {
   const skipped = [];
   for (const c of state.channels) {
     try { await fn(c); } catch (e) {
-      if (e.status === 403) { skipped.push(c.name); continue; }
+      if (e.status === 403) { skipped.push(c.name || `#${c.index}`); continue; }
       throw e;
     }
   }
@@ -957,8 +959,11 @@ async function repeaterHealth() {
 // Prüfung nach dem Start meldet nichts (sonst käme nach jedem Neustart eine Flut für längst bekannte Ausfälle).
 const watchState = new Map(); // "endpoint|nodeId|off|bat" -> true
 let watchPrimed = false;
-const fmtV = (v) => `${v.toFixed(2).replace('.', ',')} V`;
-const fmtAgo = (ms) => { const h = ms / 3600000; return h < 1 ? `${Math.round(ms / 60000)} Min.` : h < 48 ? `${Math.round(h)} Std.` : `${Math.round(h / 24)} Tagen`; };
+const fmtV = (T, v) => `${T.num(v, 2)} V`;
+const fmtAgo = (T, ms) => { const h = ms / 3600000; return h < 1 ? T('srv.durMin', { n: Math.round(ms / 60000) }) : h < 48 ? T('srv.durHours', { n: Math.round(h) }) : T('srv.durDays', { n: Math.round(h / 24) }); };
+// Texte für ein Push-Abo in dessen Sprache (gemerkt beim Einschalten von Push)
+const pushT = new Map();
+const tFor = (sub) => { const code = i18n.match(sub?.lang) || i18n.DEFAULT; if (!pushT.has(code)) pushT.set(code, i18n.translator(code)); return pushT.get(code); };
 async function watchTick() {
   if (!state.source || state.source.protocol !== 'meshcore') return;
   const subs = push.list().filter((s) => s.watch.on);
@@ -967,19 +972,20 @@ async function watchTick() {
   const now = Date.now();
   const live = new Set();
   for (const s of subs) {
+    const T = tFor(s);
     for (const r of repeaters) {
       const conds = [
         ['off', Boolean(r.lastHeard) && now - r.lastHeard > s.watch.hours * 3600000,
-          { title: `📡 ${r.name} ist still`, body: `Seit ${fmtAgo(now - r.lastHeard)} nicht mehr gehört (Grenze: ${s.watch.hours} Std.).` },
-          { title: `✅ ${r.name} ist wieder da`, body: 'Wird wieder gehört.' }],
+          { title: T('srv.watchSilent', { name: r.name }), body: T('srv.watchSilentBody', { ago: fmtAgo(T, now - r.lastHeard), n: s.watch.hours }) },
+          { title: T('srv.watchBack', { name: r.name }), body: T('srv.watchBackBody') }],
       ];
       const bat = r.status?.battery;
       if (s.watch.volts && bat && now - bat.t < 24 * 3600000) {
         const k = `${s.endpoint}|${r.id}|bat`;
         const low = bat.v < s.watch.volts || (watchState.has(k) && bat.v < s.watch.volts + 0.05); // kleiner Puffer gegen Flattern
         conds.push(['bat', low,
-          { title: `🪫 ${r.name}: Akku schwach`, body: `${fmtV(bat.v)} (Grenze: ${fmtV(s.watch.volts)}).` },
-          { title: `🔋 ${r.name}: Akku wieder ok`, body: `${fmtV(bat.v)}.` }]);
+          { title: T('srv.batLow', { name: r.name }), body: T('srv.batLowBody', { v: fmtV(T, bat.v), limit: fmtV(T, s.watch.volts) }) },
+          { title: T('srv.batOk', { name: r.name }), body: `${fmtV(T, bat.v)}.` }]);
       }
       for (const [kind, bad, alarm, clear] of conds) {
         const k = `${s.endpoint}|${r.id}|${kind}`;
@@ -1237,7 +1243,7 @@ function canonId(id) {
 function senderName(m) {
   if (m.name) return m.name;
   const n = state.nodes.find((x) => x.id === m.from);
-  return n?.long || n?.short || (m.from || '').replace(/^name:/, '').slice(0, 12) || 'Unbekannt';
+  return n?.long || n?.short || (m.from || '').replace(/^name:/, '').slice(0, 12) || '?';
 }
 const EMOJI_ONLY = /^(?=.*(?:\p{Extended_Pictographic}|\p{Regional_Indicator}))(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\p{Regional_Indicator}|\uFE0F|\u200D){1,16}$/u;
 
@@ -1357,18 +1363,22 @@ function maybePush(m) {
     const target = state.msgs.get(str(m.replyId))?.msg;
     if (!target?.mine) return;
     const conv = target.dm ? `dm:${target.to}` : `ch:${target.channel}`;
-    push.send({ title: `${senderName(m)} hat reagiert`, body: `${m.emoji} auf „${target.text.slice(0, 80)}“`, tag: `react:${target.id}`, conv, ts: m.ts }, pushSkip(conv, true)).catch(fail);
+    push.send((sub) => { const T = tFor(sub); return { title: T('notif.reacted', { name: senderName(m) }), body: T('notif.reactBody', { emoji: m.emoji, text: target.text.slice(0, 80) }), tag: `react:${target.id}`, conv, ts: m.ts }; }, pushSkip(conv, true)).catch(fail);
     return;
   }
   const mention = !m.dm && [...state.myNames].some((n) => m.text.includes(`@[${n}]`));
   const ch = state.channels.find((c) => c.index === m.channel);
   const conv = m.dm ? `dm:${m.from}` : `ch:${m.channel}`;
-  push.send({
-    title: m.dm ? senderName(m) : `${senderName(m)} in ${ch?.name || `Kanal ${m.channel}`}`,
-    body: m.text.replace(/@\[([^\]]{1,40})\]/g, '@$1').slice(0, 200),
-    tag: conv,
-    conv,
-    ts: m.ts,
+  push.send((sub) => {
+    const T = tFor(sub);
+    const chName = ch?.name || (m.channel === 0 ? T('channel.primary') : T('channel.n', { i: m.channel }));
+    return {
+      title: m.dm ? senderName(m) : T('notif.inConv', { name: senderName(m), conv: chName }),
+      body: m.text.replace(/@\[([^\]]{1,40})\]/g, '@$1').slice(0, 200),
+      tag: conv,
+      conv,
+      ts: m.ts,
+    };
   }, pushSkip(conv, m.dm || mention)).catch(fail);
 }
 
@@ -1483,7 +1493,7 @@ async function readBody(req, limit = 16384) {
   const chunks = [];
   for await (const c of req) {
     size += c.length;
-    if (size > limit) throw Object.assign(new Error('Body zu groß'), { status: 413 });
+    if (size > limit) throw Object.assign(new Error('body too large'), { status: 413 });
     chunks.push(c);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return {}; }
@@ -1492,13 +1502,14 @@ async function readBody(req, limit = 16384) {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.json': 'application/json; charset=utf-8',
 };
 
 // Versionskennung aus dem Inhalt der App-Dateien. Ändert sich bei jedem Deploy mit Codeänderung.
 const APP_VERSION = (() => {
   const h = crypto.createHash('sha1');
-  for (const f of ['app.js', 'style.css', 'sw.js', 'index.html']) {
-    try { h.update(fs.readFileSync(path.join(PUBLIC_DIR, f))); } catch { /* fehlt */ }
+  for (const f of ['app.js', 'style.css', 'sw.js', 'index.html', ...i18n.files()]) {
+    try { h.update(fs.readFileSync(path.isAbsolute(f) ? f : path.join(PUBLIC_DIR, f))); } catch { /* fehlt */ }
   }
   return h.digest('hex').slice(0, 10);
 })();
@@ -1513,16 +1524,25 @@ function serveStatic(req, res, url) {
     if (err) return send(res, 404, { error: 'not found' });
     const ext = path.extname(file);
     if (rel === '/index.html') {
-      // App-Dateien mit Version verlinken -> Browser lädt nach jedem Deploy garantiert neu
+      // App-Dateien mit Version verlinken -> Browser lädt nach jedem Deploy garantiert neu.
+      // Dazu die Sprache: Wörterbuch als JSON-Block (kein Skript, wird nicht ausgeführt), "<" maskiert.
+      const lang = i18n.clientData(i18n.pick(req));
       data = Buffer.from(data.toString('utf8')
+        .replace('<html lang="de">', `<html lang="${lang.lang}">`)
+        .replace('<script type="application/json" id="i18n">{}</script>', () => `<script type="application/json" id="i18n">${JSON.stringify(lang).replace(/</g, '\\u003c')}</script>`)
         .replace('src="/app.js"', `src="/app.js?v=${APP_VERSION}"`)
         .replace('href="/style.css"', `href="/style.css?v=${APP_VERSION}"`));
+    } else if (rel === '/manifest.webmanifest') {
+      // Beschreibung und Sprache der installierten App in der Sprache des Geräts
+      const T = i18n.translator(i18n.pick(req));
+      try { data = Buffer.from(JSON.stringify({ ...JSON.parse(data.toString('utf8')), description: T('app.description'), lang: T.lang }, null, 2)); } catch { /* Datei wie sie ist */ }
     }
     // Versionierte Dateien dürfen lange gecacht werden, alles andere wird jedes Mal geprüft
     const versioned = url.searchParams.get('v') === APP_VERSION;
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : ext === '.png' || ext === '.svg' ? 'public, max-age=86400' : 'no-cache',
+      ...(rel === '/index.html' || rel === '/manifest.webmanifest' ? { Vary: 'Cookie, Accept-Language' } : {}),
       ...SEC_HEADERS,
     });
     res.end(data);
@@ -1531,15 +1551,16 @@ function serveStatic(req, res, url) {
 
 async function handleApi(req, res, url) {
   const p = url.pathname;
+  const T = i18n.translator(i18n.pick(req)); // Texte in der Sprache dieses Geräts
 
   if (p === '/api/login' && req.method === 'POST') {
     const ip = clientIp(req);
-    if (rateLimited(ip)) return send(res, 429, { error: 'Zu viele Versuche. Bitte 15 Minuten warten.' });
+    if (rateLimited(ip)) return send(res, 429, { error: T('srv.tooManyLogins') });
     const body = await readBody(req);
     if (!checkPassword(body.password || '')) {
       noteFailure(ip);
       await new Promise((r) => setTimeout(r, 600));
-      return send(res, 401, { error: 'Falsches Passwort' });
+      return send(res, 401, { error: T('srv.wrongPassword') });
     }
     attempts.delete(ip);
     const cookie = `mc_session=${encodeURIComponent(makeSession())}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${cfg.sessionDays * 86400}${isHttps(req) ? '; Secure' : ''}`;
@@ -1568,7 +1589,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/events' && req.method === 'GET') {
     // Obergrenze für gleichzeitig offene Live-Verbindungen (je offenem Tab eine) – der Browser versucht es später erneut
-    if (clients.size >= 50) return send(res, 503, { error: 'Zu viele offene Verbindungen' });
+    if (clients.size >= 50) return send(res, 503, { error: T('srv.tooManyConns') });
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -1586,15 +1607,15 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/send' && req.method === 'POST') {
     if (!state.source) await tick();
-    if (!state.source) return send(res, 503, { error: state.error || 'MeshMonitor nicht erreichbar' });
+    if (!state.source) return send(res, 503, { error: state.error || T('status.mmDown') });
     const b = await readBody(req);
     const text = String(b.text || '').trim();
-    if (!text) return send(res, 400, { error: 'Leere Nachricht' });
+    if (!text) return send(res, 400, { error: T('srv.emptyMsg') });
     const body = { text };
     if (b.to) body.toNodeId = String(b.to);
     else {
       body.channel = Number(b.channel ?? 0);
-      if (!Number.isInteger(body.channel) || body.channel < 0 || body.channel > 255) return send(res, 400, { error: 'Ungültiger Kanal' });
+      if (!Number.isInteger(body.channel) || body.channel < 0 || body.channel > 255) return send(res, 400, { error: T('srv.badChannel') });
     }
     if (b.replyId != null && b.replyId !== '') body.replyId = Number(b.replyId);
     if (b.emoji) body.emoji = 1;
@@ -1640,33 +1661,33 @@ async function handleApi(req, res, url) {
     });
   }
   if (p === '/api/advert' && req.method === 'POST') {
-    if (!state.source) return send(res, 503, { error: 'MeshMonitor nicht erreichbar' });
+    if (!state.source) return send(res, 503, { error: T('status.mmDown') });
     const b = await readBody(req);
     const mode = b.mode === 'flood' ? 'flood' : 'zero_hop';
     try {
       await mm(`${mcp()}/advert`, { raw: true, method: 'POST', body: { mode } });
       return send(res, 200, { ok: true, mode });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   // ---- Kontakt-Werkzeuge: Ping, Pfad zurücksetzen/suchen, gespeicherter Pfad, Nachbarn
   const pkFromBody = async () => { const b = await readBody(req); return { b, pk: pkOf(b.id) }; };
   if (p === '/api/node/ping' && req.method === 'POST') {
     const { pk } = await pkFromBody();
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
-    try { return send(res, 200, { ok: true, ...(unwrap(await mm(`${mcp()}/contacts/${pk}/ping`, { raw: true, method: 'POST', body: {}, timeout: 45000 })) || {}) }); } catch (e) { return mmError(res, e); }
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
+    try { return send(res, 200, { ok: true, ...(unwrap(await mm(`${mcp()}/contacts/${pk}/ping`, { raw: true, method: 'POST', body: {}, timeout: 45000 })) || {}) }); } catch (e) { return mmError(res, e, T); }
   }
   if ((p === '/api/node/reset-path' || p === '/api/node/discover-path') && req.method === 'POST') {
     const { pk } = await pkFromBody();
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     try {
       const r = unwrap(await mm(`${mcp()}/contacts/${pk}/${p.endsWith('reset-path') ? 'reset-path' : 'discover-path'}`, { raw: true, method: 'POST', body: {}, timeout: 30000 }));
       contactCache.at = 0;
       return send(res, 200, { ok: true, waitMs: Number(r?.suggestedTimeoutMs ?? r?.discoveryTimeoutMs) || null });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/node/contact' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     try {
       const c = await companionContact(pk);
       if (!c) return send(res, 200, { known: false });
@@ -1674,11 +1695,11 @@ async function handleApi(req, res, url) {
       const hops = parsePath(c.outPath ?? c.out_path) || [];
       const flood = len == null || Number(len) < 0 || Number(len) === 255;
       return send(res, 200, { known: true, flood: flood && !hops.length, hops: hops.map((h) => ({ hash: h, name: nameForHash(h) })) });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/node/neighbours' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     const live = url.searchParams.get('live') === '1';
     try {
       let list;
@@ -1698,13 +1719,13 @@ async function handleApi(req, res, url) {
         return { id: node?.id || (n.key ? `mc:${n.key}` : null), hash: n.prefix, name: n.name || node?.long || node?.short || null, snr: n.snr, secs: n.secs };
       }).sort((a, b) => (b.snr ?? -99) - (a.snr ?? -99));
       return send(res, 200, { ts, neighbours: out.slice(0, 100) });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // Favorit setzen/entfernen (MeshMonitor und Companion-Kontakt)
   if (p === '/api/node/favorite' && req.method === 'POST') {
     const { b, pk } = await pkFromBody();
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     const fav = Boolean(b.fav);
     try {
       await mm(`${mcp()}/nodes/${pk}/favorite`, { raw: true, method: 'POST', body: { isFavorite: fav } });
@@ -1713,7 +1734,7 @@ async function handleApi(req, res, url) {
       state.nodesSig = '';
       broadcast('meta', metaPayload());
       return send(res, 200, { ok: true, fav });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // ---- Room-Server
@@ -1723,11 +1744,11 @@ async function handleApi(req, res, url) {
     try {
       const list = asArray(await mm(`${mcp()}/rooms/servers`, { raw: true }), 'rooms');
       return send(res, 200, { rooms: list.map((r) => ({ id: `mc:${str(r.publicKey).toLowerCase()}`, name: r.advName || r.name || str(r.publicKey).slice(0, 8), lastSeen: toMs(r.lastSeen), snr: r.snr ?? null, loggedIn: Boolean(r.loggedIn) })) });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/rooms/login' && req.method === 'POST') {
     const { b, pk } = await pkFromBody();
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Room-Server' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownRoom') });
     try {
       const r = b.saved
         ? await mm(`${mcp()}/rooms/login-with-saved`, { raw: true, method: 'POST', body: { publicKey: pk }, timeout: 90000 })
@@ -1735,11 +1756,11 @@ async function handleApi(req, res, url) {
       const d = unwrap(r);
       if (r?.success === false || d?.success === false) return send(res, 422, { error: d?.error || r?.error || 'Anmeldung abgelehnt', code: 'ROOM_LOGIN_REJECTED' });
       return send(res, 200, { ok: true });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/rooms/posts' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Room-Server' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownRoom') });
     try {
       const list = asArray(await mm(`${mcp()}/messages/room/${pk}?limit=150`, { raw: true }), 'messages');
       const me = pkOf(state.me);
@@ -1749,87 +1770,87 @@ async function handleApi(req, res, url) {
         mine: Boolean((me && str(m.fromPublicKey).toLowerCase() === me) || m.fromPublicKey === 'local' || /^sent-/.test(str(m.id))),
       })).sort((a, b) => a.ts - b.ts);
       return send(res, 200, { posts });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/rooms/post' && req.method === 'POST') {
     const { b, pk } = await pkFromBody();
     const text = str(b.text).trim();
-    if (!pk || !state.source || !text) return send(res, 400, { error: 'Ungültiger Beitrag' });
+    if (!pk || !state.source || !text) return send(res, 400, { error: T('srv.badPost') });
     try {
       await mm(`${mcp()}/rooms/post`, { raw: true, method: 'POST', body: { roomPublicKey: pk, text }, timeout: 30000 });
       return send(res, 200, { ok: true });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // Reaktion senden (MeshCore)
   if (p === '/api/react' && req.method === 'POST') {
-    if (!state.source) return send(res, 503, { error: 'MeshMonitor nicht erreichbar' });
+    if (!state.source) return send(res, 503, { error: T('status.mmDown') });
     const b = await readBody(req);
     const id = str(b.id);
     const emoji = str(b.emoji);
-    if (!id || id.length > 128 || !emoji || emoji.length > 64) return send(res, 400, { error: 'Ungültige Reaktion' });
+    if (!id || id.length > 128 || !emoji || emoji.length > 64) return send(res, 400, { error: T('srv.badReaction') });
     try {
       await mm(`${mcp()}/messages/${encodeURIComponent(id)}/reaction`, { raw: true, method: 'POST', body: { emoji } });
       setTimeout(() => schedule(0), 800);
       setTimeout(() => schedule(0), 3000);
       return send(res, 200, { ok: true });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // Echtes Resend: gleiche Bytes, gleicher Zeitstempel -> wer sie schon hat, verwirft die Kopie
   if (p === '/api/resend' && req.method === 'POST') {
-    if (!state.source) return send(res, 503, { error: 'MeshMonitor nicht erreichbar' });
+    if (!state.source) return send(res, 503, { error: T('status.mmDown') });
     const b = await readBody(req);
     const id = str(b.id);
-    if (!id || id.length > 128) return send(res, 400, { error: 'Ungültige Nachricht' });
+    if (!id || id.length > 128) return send(res, 400, { error: T('srv.badMessage') });
     try {
       const r = unwrap(await mm(`${mcp()}/messages/${encodeURIComponent(id)}/resend`, { raw: true, method: 'POST', body: {} }));
       setTimeout(() => schedule(0), 2500);
       return send(res, 200, { ok: true, resendCount: r?.resendCount ?? null });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // Node-Details: Telemetrie-Verlauf (nur lesen, nichts wird gespeichert)
   if (p === '/api/node/telemetry' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     const days = Math.min(30, Math.max(1, Number(url.searchParams.get('days')) || 7));
-    try { return send(res, 200, { series: await nodeTelemetry(pk, days) }); } catch (e) { return mmError(res, e); }
+    try { return send(res, 200, { series: await nodeTelemetry(pk, days) }); } catch (e) { return mmError(res, e, T); }
   }
   // Status (Repeater/Room) bzw. Sensorwerte (LPP) jetzt abfragen – sendet eine Anfrage ins Mesh
   if (p === '/api/node/status' && req.method === 'POST') {
     const b = await readBody(req);
     const pk = pkOf(b.id);
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     const type = b.type === 'lpp' ? 'lpp' : 'status';
     try {
       const r = unwrap(await mm(`${sp()}/actions/request-telemetry`, { method: 'POST', body: { destination: `mc:${pk}`, type }, timeout: 90000 }));
       return send(res, 200, { ok: true, written: r?.written ?? null, series: await nodeTelemetry(pk, 1).catch(() => ({})) });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   // Traceroute starten (läuft im Hintergrund in MeshMonitor) und Ergebnisse lesen
   if (p === '/api/node/trace' && req.method === 'POST') {
     const b = await readBody(req);
     const pk = pkOf(b.id);
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     try {
       await mm(`${sp()}/actions/traceroute`, { method: 'POST', body: { destination: `mc:${pk}` } });
       return send(res, 200, { ok: true, at: Date.now() });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
   // Traceroute über einen selbst gewählten Pfad (Repeater in Reihenfolge, der letzte ist das Ziel).
   // MeshMonitor tract nur den gespeicherten Pfad eines Kontakts – also: Pfad des Ziels kurz auf die Wahl setzen
   // (nur ein Befehl ans Gerät, nichts geht über Funk), Trace hin und zurück, danach den alten Pfad wiederherstellen.
   if (p === '/api/node/trace-custom' && req.method === 'POST') {
-    if (!state.source || state.source.protocol !== 'meshcore') return send(res, 400, { error: 'Nur für MeshCore-Quellen' });
+    if (!state.source || state.source.protocol !== 'meshcore') return send(res, 400, { error: T('srv.mcOnly') });
     const b = await readBody(req);
     const ids = Array.isArray(b.hops) ? b.hops.map(str).slice(0, 9) : [];
     const nodes = ids.map((x) => nodeById(x));
     if (!ids.length || ids.length > 8 || nodes.some((n) => !n || !pkOf(n.id) || (n.type !== 2 && n.type !== 3))) {
-      return send(res, 400, { error: 'Bitte 1 bis 8 Repeater bzw. Room-Server wählen' });
+      return send(res, 400, { error: T('srv.traceHops', { n: 8 }) });
     }
-    if (new Set(ids).size !== ids.length) return send(res, 400, { error: 'Ein Repeater kommt doppelt vor' });
-    if (customTraceBusy) return send(res, 409, { error: 'Es läuft schon eine eigene Traceroute', code: 'TRACE_BUSY' });
+    if (new Set(ids).size !== ids.length) return send(res, 400, { error: T('srv.traceDup') });
+    if (customTraceBusy) return send(res, 409, { error: T('trace.busy'), code: 'TRACE_BUSY' });
     const pks = nodes.map((n) => pkOf(n.id));
     const target = pks[pks.length - 1];
     // Hash-Breite: 1 Byte, wenn jede gewählte Station damit eindeutig ist, sonst 2 (Trace kann nur 1 oder 2)
@@ -1847,7 +1868,7 @@ async function handleApi(req, res, url) {
       original = await companionContact(target, true);
       if (!original) {
         console.log(`${tag}: Ziel ist kein Kontakt des Companions`);
-        return send(res, 409, { error: 'Das Ziel ist kein Kontakt deines Companions (nicht auf dem Gerät gespeichert) – Traceroute nicht möglich', code: 'NOT_A_CONTACT' });
+        return send(res, 409, { error: T('srv.notContact'), code: 'NOT_A_CONTACT' });
       }
       await mm(`${mcp()}/contacts/${target}/out-path`, { raw: true, method: 'PUT', body: { outPath: outHops.join(','), hashBytes: width }, timeout: 20000 });
       console.log(`${tag}: Pfad gesetzt, sende Trace …`);
@@ -1872,7 +1893,7 @@ async function handleApi(req, res, url) {
       });
     } catch (e) {
       console.error(`${tag}: Fehler:`, e.status || '', e.code || '', e.message);
-      return mmError(res, e);
+      return mmError(res, e, T);
     } finally {
       // Alten Pfad wiederherstellen (auch nach Fehlern). Flood bzw. unbekannt -> Pfad zurücksetzen.
       if (original) {
@@ -1893,14 +1914,14 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/node/traces' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     try {
       // MeshMonitor filtert erst NACH dem Limit (die neuesten N Traces der ganzen Quelle) – deshalb
       // selbst filtern und großzügig abrufen, sonst fehlen Traces zu ruhigeren Nodes.
       const rows = asArray(await mm(`${sp()}/traceroutes?limit=200`), 'traceroutes');
       const traces = rows.map((t) => traceView(t, pk)).filter(Boolean).sort((a, c) => c.ts - a.ts).slice(0, 5);
       return send(res, 200, { traces });
-    } catch (e) { return mmError(res, e); }
+    } catch (e) { return mmError(res, e, T); }
   }
 
   // Gelesen-Stand geräteübergreifend: der jeweils neuere Zeitpunkt gewinnt (nur im Speicher, max. 1000 Chats)
@@ -1922,7 +1943,7 @@ async function handleApi(req, res, url) {
     if (state.source?.protocol !== 'meshcore') return send(res, 200, { flights: [], seq: 0, unsupported: true });
     liveWanted();
     const after = Number(url.searchParams.get('after')) || 0;
-    if (live.error === 'FORBIDDEN') return send(res, 403, { error: 'Keine Berechtigung für das Paket-Log', code: 'FORBIDDEN' });
+    if (live.error === 'FORBIDDEN') return send(res, 403, { error: T('live.noPerm'), code: 'FORBIDDEN' });
     // after größer als der Zähler (Dienst neu gestartet) -> von vorn
     const list = after > live.seq ? live.buf : live.buf.filter((f) => f.seq > after);
     return send(res, 200, { seq: live.seq, flights: list.slice(-100), error: live.error || null });
@@ -1964,8 +1985,8 @@ async function handleApi(req, res, url) {
       }));
       return send(res, 200, { packets, total: num(j?.total) ?? null, offset, limit });
     } catch (e) {
-      if (e.status === 403) return send(res, 403, { error: 'Keine Berechtigung für das Paket-Log (packetmonitor:read)', code: 'FORBIDDEN' });
-      return mmError(res, e);
+      if (e.status === 403) return send(res, 403, { error: `${T('live.noPerm')} (packetmonitor:read)`, code: 'FORBIDDEN' });
+      return mmError(res, e, T);
     }
   }
   // Reach (experimentell): Wen hört ein Repeater direkt, wer hört ihn? Aus den Wegen der Flood-Pakete im Paket-Log:
@@ -1973,7 +1994,7 @@ async function handleApi(req, res, url) {
   // Nur Pakete, die bei dir angekommen sind. Je Kennungslänge (1–3 Byte) ein Abruf, max. 1000; nichts gespeichert.
   if (p === '/api/node/reach' && req.method === 'GET') {
     const pk = pkOf(url.searchParams.get('id'));
-    if (!pk || !state.source) return send(res, 400, { error: 'Unbekannter Node' });
+    if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     if (state.source.protocol !== 'meshcore') return send(res, 200, { unsupported: true });
     try {
       const pages = await Promise.all([1, 2, 3].map((w) => mm(`${sp()}/packets?path_hash=${pk.slice(0, w * 2)}&limit=1000`).then((j) => ({ w, list: asArray(j, 'packets') }))));
@@ -2027,27 +2048,27 @@ async function handleApi(req, res, url) {
         .map(({ key, ...e }) => e);
       return send(res, 200, { hears: out(hears), reaches: out(reaches), packets: used, skipped, since: oldest });
     } catch (e) {
-      if (e.status === 403) return send(res, 403, { error: 'Keine Berechtigung für das Paket-Log (packetmonitor:read)', code: 'FORBIDDEN' });
-      return mmError(res, e);
+      if (e.status === 403) return send(res, 403, { error: `${T('live.noPerm')} (packetmonitor:read)`, code: 'FORBIDDEN' });
+      return mmError(res, e, T);
     }
   }
   if (p === '/api/repeaters' && req.method === 'GET') {
     if (!state.source) await tick();
     if (state.source?.protocol !== 'meshcore') return send(res, 200, { repeaters: [] });
     if (Date.now() - state.lastMeta > 60000) await refreshMeta().catch(() => {});
-    try { return send(res, 200, await repeaterHealth()); } catch (e) { return mmError(res, e); }
+    try { return send(res, 200, await repeaterHealth()); } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/mentions' && req.method === 'GET') {
     if (!state.source) await tick();
-    if (!state.source) return send(res, 503, { error: state.error || 'MeshMonitor nicht erreichbar' });
+    if (!state.source) return send(res, 503, { error: state.error || T('status.mmDown') });
     const days = Math.min(7, Math.max(1, Number(url.searchParams.get('days')) || 7));
-    try { return send(res, 200, await mentionsSince(days)); } catch (e) { return mmError(res, e); }
+    try { return send(res, 200, await mentionsSince(days)); } catch (e) { return mmError(res, e, T); }
   }
 
   if (p === '/api/stats' && req.method === 'GET') {
     if (!state.source) await tick();
-    if (!state.source) return send(res, 503, { error: state.error || 'MeshMonitor nicht erreichbar' });
-    try { return send(res, 200, await rangeStats(url.searchParams)); } catch (e) { return mmError(res, e); }
+    if (!state.source) return send(res, 503, { error: state.error || T('status.mmDown') });
+    try { return send(res, 200, await rangeStats(url.searchParams)); } catch (e) { return mmError(res, e, T); }
   }
 
   if (p === '/api/push/key' && req.method === 'GET') {
@@ -2055,7 +2076,7 @@ async function handleApi(req, res, url) {
   }
   if (p === '/api/push/subscribe' && req.method === 'POST') {
     const b = await readBody(req);
-    try { push.add(b.subscription, b.prefs, b.watch); } catch (e) { return send(res, 400, { error: e.message }); }
+    try { push.add(b.subscription, b.prefs, b.watch, b.lang); } catch (e) { return send(res, 400, { error: T('srv.badSubscription') }); }
     return send(res, 200, { ok: true, persistent: push.persistent });
   }
   if (p === '/api/push/unsubscribe' && req.method === 'POST') {
@@ -2064,7 +2085,7 @@ async function handleApi(req, res, url) {
     return send(res, 200, { ok: true });
   }
   if (p === '/api/push/test' && req.method === 'POST') {
-    const r = await push.send({ title: 'MeshLink Chat', body: 'Test-Benachrichtigung ✔ Push funktioniert.', tag: 'test', conv: null, ts: Date.now() });
+    const r = await push.send((sub) => ({ title: 'MeshLink Chat', body: tFor(sub)('srv.pushTest'), tag: 'test', conv: null, ts: Date.now() }));
     return send(res, 200, { ok: r.some((x) => x.ok), results: r });
   }
   if (p === '/api/presence' && req.method === 'POST') {
@@ -2082,7 +2103,7 @@ async function handleApi(req, res, url) {
     try {
       return send(res, 200, { ok: true, source: await switchSource(String(b.id || '')) });
     } catch (e) {
-      return send(res, e.status || 502, { error: e.message });
+      return send(res, e.status || 502, { error: e.status === 400 ? T('srv.unknownSource') : e.message });
     }
   }
 
@@ -2131,6 +2152,8 @@ async function probe() {
 
 // ---------------------------------------------------------------- Start
 
+// Sprache der Konsolen-Ausgaben (Verbindungstest, Start-Warnungen): MESHLINK_LANG, sonst die Systemsprache, sonst Englisch
+const C = i18n.translator(i18n.match(process.env.MESHLINK_LANG) || i18n.match(String(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '').split(/[._@]/)[0].replace('_', '-')) || i18n.DEFAULT);
 if (process.argv.includes('--check')) {
   // Kurzer Verbindungstest für install.sh
   (async () => {
@@ -2138,32 +2161,32 @@ if (process.argv.includes('--check')) {
       await resolveSource();
       await refreshMeta();
       await pollMessages();
-      console.log(`  ✔ MeshLink Chat ${VERSION} verbunden mit MeshMonitor (${cfg.mmUrl})`);
-      console.log(`  ✔ Quelle: ${state.source.name} [${state.source.id}], Protokoll: ${state.source.protocol}`);
-      console.log(`  ✔ ${state.channels.length} Kanäle, ${state.nodes.length} Nodes, ${state.msgs.size} Nachrichten gelesen`);
-      console.log(state.me ? `  ✔ Eigener Node: ${state.me}` : '  ⚠ Eigener Node nicht erkannt – ggf. MY_NODE_ID in .env setzen');
+      console.log(`  ✔ ${C('cli.connected', { v: VERSION, url: cfg.mmUrl })}`);
+      console.log(`  ✔ ${C('cli.source', { name: state.source.name, id: state.source.id, proto: state.source.protocol })}`);
+      console.log(`  ✔ ${C('cli.counts', { ch: state.channels.length, nodes: state.nodes.length, msgs: state.msgs.size })}`);
+      console.log(state.me ? `  ✔ ${C('cli.me', { id: state.me })}` : `  ⚠ ${C('cli.noMe')}`);
       const caps = msgCaps();
-      console.log(`  ${state.mmVersion ? '✔' : '⚠'} MeshMonitor-Version: ${state.mmVersion || 'unbekannt'} → max. ${caps.dm} Bytes je DM, ${caps.channel} je Kanalnachricht`);
+      console.log(`  ${state.mmVersion ? '✔' : '⚠'} ${C('cli.version', { v: state.mmVersion || C('common.unknown'), dm: caps.dm, ch: caps.channel })}`);
       if (state.source.protocol === 'meshcore') {
-        await pollEchoes(true).catch((e) => console.log(`  ⚠ Repeater-Echos: ${e.message}`));
+        await pollEchoes(true).catch((e) => console.log(`  ⚠ ${C('cli.echoes', { msg: e.message })}`));
         const own = ownChannelMsgs().filter((m) => m.ts > Date.now() - 6 * 3600000);
         for (const m of own.slice(-3)) {
           const h = heardFor(m.id);
-          console.log(`  📡 „${m.text.slice(0, 28)}“ → ${h.length} Repeater${h.length ? ': ' + h.map((r) => `${r.name || '#' + r.hash}${r.snr != null ? ` (${r.snr})` : ''}`).join(', ') : ''}`);
+          console.log(`  📡 „${m.text.slice(0, 28)}“ → ${C('cli.heard', { n: h.length })}${h.length ? ': ' + h.map((r) => `${r.name || '#' + r.hash}${r.snr != null ? ` (${r.snr})` : ''}`).join(', ') : ''}`);
         }
         const inc = [...state.msgs.values()].map((e) => e.msg).filter((m) => !m.mine && !m.reaction);
         const withRoute = inc.filter((m) => m.route);
-        console.log(`  ↳ Weg bekannt für ${withRoute.length} von ${inc.length} empfangenen Nachrichten`);
+        console.log(`  ↳ ${C('cli.routes', { k: withRoute.length, n: inc.length })}`);
         for (const m of withRoute.slice(-3)) {
-          console.log(`  ↳ ${m.dm ? 'DM' : 'Kanal'} von ${m.name || m.from.slice(0, 11)}: ${m.route.hops.length ? m.route.hops.map((x) => x.name || '#' + x.hash).join(' › ') : m.route.route === 'DIRECT' ? 'feste Route' : 'direkt'}`);
+          console.log(`  ↳ ${C(m.dm ? 'cli.dmFrom' : 'cli.chFrom', { name: m.name || m.from.slice(0, 11) })}: ${m.route.hops.length ? m.route.hops.map((x) => x.name || '#' + x.hash).join(' › ') : m.route.route === 'DIRECT' ? C('cli.fixedRoute') : C('common.direct')}`);
         }
       }
       process.exit(0);
     } catch (e) {
-      console.error(`  ✘ Fehler: ${e.message}${e.status ? ` (HTTP ${e.status})` : ''}`);
-      if (e.status === 401) console.error('    → API-Token prüfen');
-      if (e.status === 403) console.error('    → Der Token-Benutzer braucht Rechte messages:read / messages:write');
-      if (!e.status) console.error('    → MM_URL prüfen: Ist MeshMonitor von hier aus erreichbar?');
+      console.error(`  ✘ ${C('common.error', { msg: e.message })}${e.status ? ` (HTTP ${e.status})` : ''}`);
+      if (e.status === 401) console.error(`    → ${C('cli.checkToken')}`);
+      if (e.status === 403) console.error(`    → ${C('cli.needPerms')}`);
+      if (!e.status) console.error(`    → ${C('cli.checkUrl')}`);
       process.exit(1);
     }
   })();
@@ -2171,9 +2194,9 @@ if (process.argv.includes('--check')) {
   probe().then((r) => { process.stdout.write(JSON.stringify(r, null, 2) + '\n', () => process.exit(0)); })
     .catch((e) => { console.error(e); process.exit(1); });
 } else {
-  if (!cfg.mmToken) console.warn('WARNUNG: MM_TOKEN ist nicht gesetzt');
+  if (!cfg.mmToken) console.warn(C('cli.noToken'));
   if (!cfg.password || cfg.password.length < 8) {
-    console.error('FEHLER: APP_PASSWORD muss gesetzt sein (mind. 8 Zeichen)');
+    console.error(C('cli.noPassword'));
     process.exit(1);
   }
   const server = http.createServer(async (req, res) => {
