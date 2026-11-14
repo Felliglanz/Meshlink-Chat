@@ -13,6 +13,10 @@ Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kon
 
 </div>
 
+> [!NOTE]
+> **Hobby-Projekt ohne Support.** Issues und Discussions sind bewusst ausgeschaltet. Nutzen, anpassen und forken ist
+> ausdrücklich erwünscht (MIT).
+
 <p align="center">
   <img src="docs/screenshots/chat.png" width="240" alt="Kanal-Chat mit Repeater-Echos">
   <img src="docs/screenshots/map-live.png" width="240" alt="Live-Pakete auf der Karte">
@@ -111,18 +115,13 @@ Auf dem Server bzw. LXC, auf dem MeshMonitor läuft, als root:
 
 ```bash
 apt install -y git nodejs        # falls noch nicht vorhanden (Node.js ≥ 18)
-git clone https://github.com/<konto>/meshlink-chat.git /root/meshlink-chat
+git clone https://github.com/Felliglanz/Meshlink-Chat.git /root/meshlink-chat
 cd /root/meshlink-chat && ./install.sh
 ```
 
 `install.sh` fragt nach der MeshMonitor-URL (meist wird sie erkannt), dem API-Token, einem App-Passwort, der
 Bind-Adresse und dem Port. Dann kopiert es das Programm nach `/opt/meshlink-chat`, richtet den Dienst
 `meshlink-chat` ein und testet die Verbindung. Der Clone-Ordner ist nur die Quelle, laufen tut alles aus `/opt`.
-
-> **Privates Repo?** Dann braucht der Server Lesezugriff. Am einfachsten geht das mit einem *Deploy Key*: auf dem
-> Server `ssh-keygen -t ed25519 -f ~/.ssh/meshlink_deploy` ausführen, den öffentlichen Schlüssel im Repo unter
-> *Settings → Deploy keys* eintragen (nur lesen) und per SSH klonen. Den Schlüssel gibst du dabei mit
-> `GIT_SSH_COMMAND="ssh -i ~/.ssh/meshlink_deploy"` an.
 
 ### Danach
 
