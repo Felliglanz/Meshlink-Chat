@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.1.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.2.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -47,8 +47,8 @@ Ein Tipp zerlegt das Paket **Byte für Byte** in farbige Felder: Header, Pfad, S
 🛰️ **Reach (experimentell).** Wen hört ein Repeater direkt, und wer hört ihn? MeshLink Chat wertet dafür die Wege der
 Pakete aus, die dein Companion empfangen hat. Es braucht keine zusätzlichen Nodes.
 
-🧭 **Werkzeuge für Bastler.** Eigene Traceroute über selbst gewählte Repeater mit SNR hin und zurück, Repeater-Status
-und Verläufe, Nachbarlisten, Direkt-Ping, Pfad zurücksetzen und eine DM per Flood neu senden, Advert senden.
+🧭 **Werkzeuge für Bastler.** Eigene Traceroute über selbst gewählte Repeater mit SNR hin und zurück, Repeater-Status,
+Verläufe und Paketverkehr pro Stunde und Tag, Nachbarlisten, Direkt-Ping, Pfad zurücksetzen und eine DM per Flood neu senden, Advert senden.
 
 📊 **Statistik.** Heute, gestern oder 7 Tage: Nachrichten und Pakete je Stunde, Rekorde (weitester Absender,
 längster Weg …), Pakettypen, SNR/RSSI. Lässt sich als **PDF** speichern.
@@ -258,7 +258,12 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 - **Kontakte** (👥): Favoriten / Alle / Repeater. ☆/★ setzt den Favoriten in MeshMonitor und auf dem Companion.
 - **Node-Seite:** Status per Funk abfragen (max. 1×/Min.), Verläufe (Akku, Rauschen, Pakete), Traceroute,
   gespeicherter Pfad, Direkt-Ping, Pfad zurücksetzen/suchen, Nachbarn, Reach. Alles lässt sich auch auf der Karte zeigen.
-- **Repeater-Übersicht:** alle Favoriten-Repeater mit Ampel, zuletzt gehört, Akku, Rauschen, SNR und Laufzeit.
+- **Repeater-Übersicht:** alle Favoriten-Repeater mit Ampel, zuletzt gehört, Akku, Rauschen, SNR, Laufzeit und Paketen pro
+  Stunde bzw. 24 h.
+- **Paketverkehr** (Node-Seite eines Repeaters): empfangene und gesendete Pakete pro Stunde, in den letzten 24 h und
+  je Tag der letzten 7 Tage. Die Zahlen kommen aus den eigenen Zählern des Repeaters (Differenz zweier Status-Werte),
+  nichts wird geschätzt. Nach einem Neustart des Repeaters steht „≥“ (Mindestwert), fällt eine Tagesgrenze in eine
+  Messlücke über 3 Std., bleibt der Tag leer. Voraussetzung: MeshMonitor fragt den Status des Repeaters regelmäßig ab.
 - **Repeater-Wächter** (Einstellungen): Push, wenn ein Favorit 1–24 Std. still ist oder sein Akku unter 3,5/3,6/3,7 V
   fällt, und eine Entwarnung, wenn es wieder passt.
 - **Statistik:** Heute, Gestern oder 7 Tage, bei jedem Öffnen frisch berechnet. Paketzahlen reichen nur so weit wie das

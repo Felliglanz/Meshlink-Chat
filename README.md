@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.1.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.2.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -47,8 +47,8 @@ One tap breaks the packet down **byte by byte** into coloured fields: header, pa
 🛰️ **Reach (experimental).** Whom does a repeater hear directly, and who hears it? MeshLink Chat works this out
 from the paths of the packets your companion received. No extra nodes needed.
 
-🧭 **Tools for tinkerers.** Custom traceroute via repeaters you pick, with SNR there and back, repeater status and
-history, neighbour lists, direct ping, reset path and resend a DM by flood, send advert.
+🧭 **Tools for tinkerers.** Custom traceroute via repeaters you pick, with SNR there and back, repeater status,
+history and packet traffic per hour and day, neighbour lists, direct ping, reset path and resend a DM by flood, send advert.
 
 📊 **Statistics.** Today, yesterday or 7 days: messages and packets per hour, records (farthest sender, longest
 path …), packet types, SNR/RSSI. Can be saved as **PDF**.
@@ -258,7 +258,12 @@ if something is broken.
 - **Contacts** (👥): Favourites / All / Repeaters. ☆/★ sets the favourite in MeshMonitor and on the companion.
 - **Node page:** request status over the air (max. 1×/min), history (battery, noise, packets), traceroute,
   stored path, direct ping, reset/discover path, neighbours, reach. Everything can also be shown on the map.
-- **Repeater overview:** all favourite repeaters with a status light, last heard, battery, noise, SNR and uptime.
+- **Repeater overview:** all favourite repeaters with a status light, last heard, battery, noise, SNR, uptime and
+  packets per hour / 24 h.
+- **Packet traffic** (node page of a repeater): packets received and sent per hour, in the last 24 h and per day for
+  the last 7 days. The numbers come from the repeater's own counters (difference between two status values); nothing
+  is estimated. After a restart of the repeater a "≥" (minimum) is shown; if a day boundary falls into a measurement
+  gap of over 3 h, that day stays empty. Requirement: MeshMonitor requests the repeater's status regularly.
 - **Repeater watch** (Settings): push when a favourite has been silent for 1–24 h or its battery drops below
   3.5/3.6/3.7 V, and an all-clear when it's fine again.
 - **Statistics:** today, yesterday or 7 days, calculated fresh each time you open it. Packet numbers only go back

@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -611,12 +611,93 @@ async function mapLinks(days) {
   return [...links.values()].slice(0, 2000);
 }
 
+// ---------------------------------------------------------------- Paketverkehr eines Repeaters
+// Quelle sind die eigenen Zähler des Repeaters aus seiner Status-Telemetrie (packets_recv / packets_sent, seit dem
+// Gerätestart). Die Differenz zweier Messungen = Pakete dazwischen; nichts wird aus dem eigenen Empfang geschätzt.
+// - Neustart (Zähler kleiner oder Laufzeit kürzer als der Abstand zur letzten Messung): ab dann zählt der neue Stand;
+//   was zwischen letzter Messung und Neustart lag, fehlt -> Ergebnis ist ein Mindestwert ("lower").
+// - Zwischen zwei Messungen wird gleichmäßig verteilt, aber nur bei höchstens 3 Std. Abstand; über größere Lücken
+//   (oder einen Neustart) hinweg gibt es für einen Zeitpunkt keinen Wert -> der Zeitraum bleibt leer statt geraten.
+const TRAFFIC_GAP = 3 * 3600000;
+function trafficSeries(points, uptime) {
+  const s = [];
+  let c = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [t, v] = points[i];
+    if (!i) { s.push({ t, c: 0, reset: false, gap: false }); continue; }
+    const [pt, pv] = points[i - 1];
+    if (t <= pt) continue;
+    const up = uptime.get(t);
+    const reset = v < pv || (up != null && up * 1000 < t - pt - 60000);
+    c += reset ? v : v - pv;
+    s.push({ t, c, reset, gap: t - pt > TRAFFIC_GAP });
+  }
+  return s;
+}
+// Zählerstand zum Zeitpunkt t; null, wenn t nicht sicher abgedeckt ist (vor der ersten / nach der letzten Messung, in einer Lücke)
+function trafficAt(s, t) {
+  if (!s.length || t < s[0].t || t > s[s.length - 1].t) return null;
+  let lo = 0; let hi = s.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (s[mid].t <= t) lo = mid; else hi = mid; }
+  const a = s[lo]; const b = s[hi];
+  if (t === a.t) return a.c;
+  if (t === b.t) return b.c;
+  if (b.gap || b.reset) return null;
+  return a.c + ((b.c - a.c) * (t - a.t)) / (b.t - a.t);
+}
+function trafficDelta(s, t1, t2) {
+  const a = trafficAt(s, t1); const b = trafficAt(s, t2);
+  if (a == null || b == null) return null;
+  return { n: Math.round(b - a), lower: s.some((x) => x.reset && x.t > t1 && x.t <= t2) };
+}
+// rows = Telemetrie-Zeilen; bounds = Tagesanfänge in der Zeitzone des Geräts (optional) -> Pakete je Tag
+function repeaterTraffic(rows, bounds = []) {
+  const pts = { recv: [], sent: [] };
+  const uptime = new Map();
+  for (const r of rows) {
+    const type = str(r.telemetryType).replace(/^mc_/, '');
+    const v = Number(r.value); const t = toMs(r.timestamp ?? r.createdAt);
+    if (!Number.isFinite(v) || !t) continue;
+    if (type === 'status_packets_recv') pts.recv.push([t, v]);
+    else if (type === 'status_packets_sent') pts.sent.push([t, v]);
+    else if (type === 'status_uptime_secs') uptime.set(t, v);
+  }
+  const now = Date.now();
+  const out = {};
+  for (const [k, list] of Object.entries(pts)) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a[0] - b[0]);
+    const s = trafficSeries(list, uptime);
+    const last = s[s.length - 1];
+    // Aktuell pro Stunde: jüngster sauberer Abschnitt von mind. 5 Min. (mehrere Messungen dürfen zusammenkommen)
+    let hour = null;
+    if (now - last.t <= TRAFFIC_GAP) {
+      for (let i = s.length - 2; i >= 0; i--) {
+        if (s[i + 1].gap || s[i + 1].reset) break;
+        const span = last.t - s[i].t;
+        if (span >= 300000) { hour = { n: Math.round(((last.c - s[i].c) / span) * 3600000), span, at: last.t }; break; }
+      }
+    }
+    const day = trafficDelta(s, last.t - 86400000, last.t);
+    const days = bounds.map((b0, i) => {
+      const end = Math.min(bounds[i + 1] ?? now, last.t);
+      if (end <= b0) return null;
+      const d = trafficDelta(s, b0, end);
+      return d && { ...d, partial: end < (bounds[i + 1] ?? b0 + 86400000) };
+    });
+    out[k] = { hour, day: day && { ...day, at: last.t }, days, samples: s.length, first: s[0].t, last: last.t };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // Telemetrie eines Nodes als Zeitreihen je Typ (auf ~240 Punkte verdichtet)
-async function nodeTelemetry(pk, days) {
+async function nodeTelemetry(pk, days, bounds = []) {
   const since = Date.now() - days * 86400000;
+  // Für den Paketverkehr mind. 26 Std. und ab dem ersten Tagesanfang holen (der Verlauf zeigt trotzdem nur "days")
+  const from = Math.min(since, Date.now() - 26 * 3600000, ...bounds);
   let rows = [];
   for (const id of [`mc:${pk}`, pk]) {
-    try { rows = asArray(await mm(`${sp()}/telemetry/${encodeURIComponent(id)}?since=${since}&limit=5000`), 'telemetry'); } catch (e) { if (e.status === 403) throw e; rows = []; }
+    try { rows = asArray(await mm(`${sp()}/telemetry/${encodeURIComponent(id)}?since=${from}&limit=5000`), 'telemetry'); } catch (e) { if (e.status === 403) throw e; rows = []; }
     if (rows.length) break;
   }
   const series = {};
@@ -636,7 +717,7 @@ async function nodeTelemetry(pk, days) {
     }
     s.last = s.points[s.points.length - 1];
   }
-  return series;
+  return { series, traffic: repeaterTraffic(rows, bounds) };
 }
 
 // ---------------------------------------------------------------- Statistik (heute, gestern, 7 Tage)
@@ -917,10 +998,10 @@ async function latestStatus(pk) {
   const since = Date.now() - 2 * 86400000;
   let rows = [];
   for (const id of [`mc:${pk}`, pk]) {
-    try { rows = asArray(await mm(`${sp()}/telemetry/${encodeURIComponent(id)}?since=${since}&limit=500`), 'telemetry'); } catch (e) { if (e.status === 403) throw e; rows = []; }
+    try { rows = asArray(await mm(`${sp()}/telemetry/${encodeURIComponent(id)}?since=${since}&limit=3000`), 'telemetry'); } catch (e) { if (e.status === 403) throw e; rows = []; }
     if (rows.length) break;
   }
-  const out = { ts: null };
+  const out = { ts: null, traffic: repeaterTraffic(rows) };
   for (const r of rows) {
     const type = str(r.telemetryType).replace(/^mc_/, '');
     const v = Number(r.value); const t = toMs(r.timestamp ?? r.createdAt);
@@ -1815,7 +1896,9 @@ async function handleApi(req, res, url) {
     const pk = pkOf(url.searchParams.get('id'));
     if (!pk || !state.source) return send(res, 400, { error: T('srv.unknownNode') });
     const days = Math.min(30, Math.max(1, Number(url.searchParams.get('days')) || 7));
-    try { return send(res, 200, { series: await nodeTelemetry(pk, days) }); } catch (e) { return mmError(res, e, T); }
+    // b = Tagesanfänge (ms) in der Zeitzone des Geräts, für "Pakete pro Tag"
+    const bounds = (url.searchParams.get('b') || '').split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0).slice(0, 31).sort((a, b) => a - b);
+    try { return send(res, 200, await nodeTelemetry(pk, days, bounds)); } catch (e) { return mmError(res, e, T); }
   }
   // Status (Repeater/Room) bzw. Sensorwerte (LPP) jetzt abfragen – sendet eine Anfrage ins Mesh
   if (p === '/api/node/status' && req.method === 'POST') {
@@ -1825,7 +1908,7 @@ async function handleApi(req, res, url) {
     const type = b.type === 'lpp' ? 'lpp' : 'status';
     try {
       const r = unwrap(await mm(`${sp()}/actions/request-telemetry`, { method: 'POST', body: { destination: `mc:${pk}`, type }, timeout: 90000 }));
-      return send(res, 200, { ok: true, written: r?.written ?? null, series: await nodeTelemetry(pk, 1).catch(() => ({})) });
+      return send(res, 200, { ok: true, written: r?.written ?? null, series: (await nodeTelemetry(pk, 1).catch(() => ({}))).series || {} });
     } catch (e) { return mmError(res, e, T); }
   }
   // Traceroute starten (läuft im Hintergrund in MeshMonitor) und Ergebnisse lesen

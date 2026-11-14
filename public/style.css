@@ -472,6 +472,15 @@ button.geo { display: inline-block; padding: 2px 8px; margin: 1px 0; border-radi
 .lamp-ok { background: #1f9d6b; } .lamp-warn { background: #d9a12b; } .lamp-bad { background: #c8372d; }
 .stat-grid > div.rp-low { background: color-mix(in srgb, var(--danger) 16%, transparent); }
 .rp-foot { color: var(--muted); font-size: 12px; margin-top: 8px; }
+/* Paketverkehr je Tag (Node-Seite eines Repeaters) */
+.tr-table { margin-top: 10px; }
+.tr-row { display: grid; grid-template-columns: 1fr 80px 80px; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.tr-row:first-child { border-top: 0; }
+.tr-row > span { position: relative; min-width: 0; padding-bottom: 5px; }
+.tr-row > span small { color: var(--muted); font-size: 11.5px; }
+.tr-row b, .tr-row > small { text-align: right; font-variant-numeric: tabular-nums; }
+.tr-headrow > span, .tr-headrow > small { color: var(--muted); font-size: 11.5px; padding-bottom: 0; }
+.tr-bar { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 2px; background: var(--accent); opacity: .55; }
 .watch-intro { font-size: 14.5px; line-height: 1.4; padding: 4px 4px 10px; }
 
 /* ---------- Statistik als PDF (Druckdialog → „Als PDF speichern“) */

@@ -1533,6 +1533,8 @@ async function loadRepeaters() {
   }
 }
 
+// Kurzform für die Übersicht: ↓ empfangen · ↑ gesendet
+const rpTraffic = (tr, k) => (tr.recv?.[k] || tr.sent?.[k] ? `↓ ${trafficNum(tr.recv?.[k])} · ↑ ${trafficNum(tr.sent?.[k])}` : '–');
 function drawRepeaters(r) {
   const now = Date.now();
   const limit = (S.watch.hours || 6) * 3600000;
@@ -1554,6 +1556,7 @@ function drawRepeaters(r) {
         <div><small>${T('node.noise')}</small><b>${val(x.status, 'noise', (v) => `${fmtNum(v)} dB`)}</b></div>
         <div><small>${T('node.lastSnr')}</small><b>${val(x.status, 'snr', (v) => `${fmtNum(v)} dB`)}</b></div>
         <div><small>${T('node.uptime')}</small><b>${val(x.status, 'uptime', (v) => dur(v))}</b></div>
+        ${x.status?.traffic ? `<div><small>${T('traffic.pkHour')}</small><b>${rpTraffic(x.status.traffic, 'hour')}</b></div><div><small>${T('traffic.pk24')}</small><b>${rpTraffic(x.status.traffic, 'day')}</b></div>` : ''}
       </div>
       <div class="rp-foot">${x.status?.ts ? T('rp.statusAgo', { ago: esc(ago(x.status.ts)) }) : T('rp.noStatus')}${x.hops != null ? ` · ${T('common.hops', { n: x.hops })}` : ''}${x.snr != null ? ` · SNR ${esc(x.snr)}` : ''}</div>
     </section>`;
@@ -2842,6 +2845,7 @@ function renderNodeBody() {
       }).join('') : `<div class="muted">${ni.series ? T('node.noValuesRange') : T('common.loading')}</div>`}
       ${msg('tele')}
     </section>` : ''}
+    ${n.type === 2 || n.type === 3 ? trafficCard(ni) : ''}
     <section class="card">
       <div class="card-head"><b>${T('node.checkRoute')}</b></div>
       <button class="sheet-btn" data-na="trace" ${ni.busy === 'trace' ? 'disabled' : ''}>${ni.busy === 'trace' ? T('node.traceRunning') : T('node.traceStart')}</button>
@@ -2876,6 +2880,39 @@ function renderNodeBody() {
       <div class="hint">${T('node.nbHint')}</div>
     </section>
     ${S.source?.protocol === 'meshcore' ? reachCard(ni) : ''}` : ''}`;
+}
+
+// Paketverkehr eines Repeaters: aus seinen eigenen Zählern (Status-Telemetrie), berechnet im Server (repeaterTraffic).
+// "mind." = Neustart im Zeitraum (davor fehlen Pakete), "–" = Messungen decken den Zeitraum nicht ab.
+const trafficNum = (d) => (d ? `${d.lower ? `${T('traffic.atLeast')}\u00a0` : ''}${nf(d.n)}` : '–');
+function trafficCard(ni) {
+  const tr = ni.traffic;
+  const last = tr ? Math.max(tr.recv?.last || 0, tr.sent?.last || 0) : 0;
+  const head = `<div class="card-head"><b>${T('traffic.title')}</b>${last ? `<small>${T('node.asOf', { ago: esc(ago(last)) })}</small>` : ''}</div>`;
+  if (ni.series == null) return `<section class="card">${head}<div class="muted">${T('common.loading')}</div></section>`;
+  if (!tr) return `<section class="card">${head}<div class="muted">${T('traffic.none')}</div><div class="hint">${T('traffic.needPolling')}</div></section>`;
+  const r = tr.recv || {}; const s = tr.sent || {};
+  const h = r.hour || s.hour;
+  const perH = (d) => (d ? nf(d.n) : '–');
+  const days = (ni.trafficBounds || []).map((b, i) => ({ b, r: r.days?.[i] || null, s: s.days?.[i] || null })).filter((x) => x.r || x.s).reverse();
+  const max = Math.max(1, ...days.map((x) => x.s?.n || x.r?.n || 0));
+  return `
+    <section class="card">
+      ${head}
+      <div class="stat-grid">
+        <div><small>${T('traffic.recvHour')}</small><b>${perH(r.hour)}</b></div>
+        <div><small>${T('traffic.sentHour')}</small><b>${perH(s.hour)}</b></div>
+        <div><small>${T('traffic.recv24')}</small><b>${trafficNum(r.day)}</b></div>
+        <div><small>${T('traffic.sent24')}</small><b>${trafficNum(s.day)}</b></div>
+      </div>
+      <div class="hint">${h ? T('traffic.measured', { span: esc(dur(h.span / 1000)) }) : T('traffic.noFresh')}</div>
+      ${days.length ? `
+      <div class="tr-table">
+        <div class="tr-row tr-headrow"><span>${T('traffic.perDay')}</span><small>${T('traffic.recv')}</small><small>${T('traffic.sent')}</small></div>
+        ${days.map((x) => `<div class="tr-row"><span>${esc(dayLabel(x.b))}${(x.r || x.s)?.partial ? ` <small>${T('traffic.soFar')}</small>` : ''}<i class="tr-bar" style="width:${Math.max(2, ((x.s?.n || x.r?.n || 0) / max) * 100)}%"></i></span><b>${trafficNum(x.r)}</b><b>${trafficNum(x.s)}</b></div>`).join('')}
+      </div>` : ''}
+      <div class="hint">${T('traffic.hint', { n: Math.max(r.samples || 0, s.samples || 0) })}</div>
+    </section>`;
 }
 
 // Reach (experimentell): aus den Wegen der Flood-Pakete, die dein Companion empfangen hat
@@ -2984,10 +3021,15 @@ async function loadNeighbours(live) {
 async function loadNodeTelemetry() {
   const ni = S.ni;
   const n = node(ni.id);
+  // Tagesanfänge der letzten 7 Tage in der Zeitzone dieses Geräts (für "Pakete pro Tag")
+  const today = dayStart(new Date());
+  const bounds = [6, 5, 4, 3, 2, 1, 0].map((i) => addDays(today, -i).getTime());
   try {
-    const r = await api(`/api/node/telemetry?id=${encodeURIComponent(ni.id)}&days=${ni.days}`);
+    const r = await api(`/api/node/telemetry?id=${encodeURIComponent(ni.id)}&days=${ni.days}&b=${bounds.join(',')}`);
     if (S.ni !== ni) return;
     ni.series = r.series || {};
+    ni.traffic = r.traffic || null;
+    ni.trafficBounds = bounds;
     delete ni.msg.tele;
   } catch (e) {
     if (S.ni !== ni) return;

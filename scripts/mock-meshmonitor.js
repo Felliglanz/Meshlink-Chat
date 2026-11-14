@@ -136,11 +136,27 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       hops: [{ index: 0, publicKey: RP2, hash: 'b3', snr: 8 }, { index: 1, publicKey: MEPK, hash: MEPK.slice(0, 2), snr: 7.5 }] });
     traces.push({ protocol: 'meshcore', fromNodeId: `mc:${MEPK}`, toNodeId: `mc:${RPT0}`, timestamp: Date.now() - 3 * 3600000,
       hops: [{ index: 0, publicKey: RP2, hash: 'b3', snr: 9.25 }, { index: 1, publicKey: RPT0, hash: 'b4', snr: 6.5 }, { index: 2, publicKey: RP2, hash: 'b3', snr: 4.75 }, { index: 3, publicKey: MEPK, hash: MEPK.slice(0, 2), snr: 10 }] }); }
-  const telem = Array.from({ length: 7 * 24 }, (_, i) => [
-    { telemetryType: 'mc_status_battery_volts', value: 3.9 + 0.15 * Math.sin(i / 8), timestamp: Date.now() - (7 * 24 - i) * 3600000 },
-    { telemetryType: 'mc_status_noise_floor', value: -110 - 4 * Math.cos(i / 5), timestamp: Date.now() - (7 * 24 - i) * 3600000 },
-    { telemetryType: 'mc_status_packets_recv', value: 9000 + i * 35, timestamp: Date.now() - (7 * 24 - i) * 3600000 },
-  ]).flat();
+  // Status-Telemetrie des Repeaters: stündlich, 7 Tage. Zähler seit Gerätestart; vor ~3 Tagen ein Neustart
+  // (Zähler und Laufzeit beginnen bei 0), vor ~2,5 Tagen 5 Std. ohne Messung (Lücke). Verkehr schwankt über den Tag.
+  const telem = [];
+  { const now = Date.now(); const boot = now - 3 * 86400000 - 1800000;
+    let recv = 9000; let sent = 6000; let up = 5 * 86400;
+    for (let i = 0; i < 7 * 24; i++) {
+      const t = now - (7 * 24 - i) * 3600000 + 600000;
+      const hr = new Date(t).getHours();
+      const rate = Math.round(40 + 30 * Math.sin(((hr - 6) / 24) * 2 * Math.PI));
+      if (t >= boot && t - 3600000 < boot) { recv = Math.round(((t - boot) / 3600000) * rate); sent = Math.round(recv * 0.6); up = Math.round((t - boot) / 1000); } else { recv += rate; sent += Math.round(rate * 0.6); up += 3600; }
+      if (i >= 100 && i < 105) continue; // Lücke
+      telem.push(
+        { telemetryType: 'mc_status_battery_volts', value: 3.9 + 0.15 * Math.sin(i / 8), timestamp: t },
+        { telemetryType: 'mc_status_noise_floor', value: -110 - 4 * Math.cos(i / 5), timestamp: t },
+        { telemetryType: 'mc_status_packets_recv', value: recv, timestamp: t },
+        { telemetryType: 'mc_status_packets_sent', value: sent, timestamp: t },
+        { telemetryType: 'mc_status_uptime_secs', value: up, timestamp: t },
+      );
+    }
+    globalThis.mockCounters = { recv, sent, up, at: now };
+  }
   channels.length = 0;
   channels.push({ id: 0, name: 'Public', displayName: 'Public', scope: 'de' }, { id: 4, name: '#test', displayName: '#test', scope: 'de' }, { id: 10, name: 'clubhaus', displayName: 'clubhaus', scope: 'de-nord' });
   messages = [];
@@ -365,8 +381,9 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       if (Date.now() - (globalThis.lastTx || 0) < 60000) return J(429, { success: false, error: 'Too soon', code: 'RATE_LIMITED', retryAfter: 42 });
       globalThis.lastTx = Date.now();
       await new Promise((r) => setTimeout(r, 1500));
-      telem.push(...['battery_volts', 'uptime_secs', 'noise_floor', 'packets_recv'].map((k, i) => ({ telemetryType: `mc_status_${k}`, value: [4.05, 86400 * 3 + 5000, -112, 15234][i], timestamp: Date.now() })));
-      return J(200, { success: true, data: { written: 4, type: 'status', protocol: 'meshcore' } });
+      { const c = globalThis.mockCounters; const h = (Date.now() - c.at) / 3600000; const add = Math.round(h * 45);
+        telem.push(...['battery_volts', 'uptime_secs', 'noise_floor', 'packets_recv', 'packets_sent'].map((k, i) => ({ telemetryType: `mc_status_${k}`, value: [4.05, Math.round(c.up + h * 3600), -112, c.recv + add, c.sent + Math.round(add * 0.6)][i], timestamp: Date.now() }))); }
+      return J(200, { success: true, data: { written: 5, type: 'status', protocol: 'meshcore' } });
     }
     if (url.pathname.startsWith(`${b}/telemetry/`)) {
       const id = decodeURIComponent(url.pathname.split('/').pop());
