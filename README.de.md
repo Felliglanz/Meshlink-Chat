@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.4.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.4.1` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 

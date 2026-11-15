@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.4.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.4.1` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
