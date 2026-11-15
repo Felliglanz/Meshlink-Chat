@@ -265,6 +265,8 @@ if something is broken.
 - **Contacts** (👥): Favourites / All / Repeaters. ☆/★ sets the favourite in MeshMonitor and on the companion.
 - **Node page:** request status over the air (max. 1×/min), history (battery, noise, packets), traceroute,
   stored path, direct ping, reset/discover path, neighbours, reach. Everything can also be shown on the map.
+- **Query neighbours:** a repeater sends at most 10 neighbours per request (firmware limit). "Load more" fetches the
+  next ones, "On map" then shows all loaded ones. Every page is its own request over the air.
 - **Repeater overview:** all favourite repeaters with a status light, last heard, battery, noise, SNR, uptime and
   packets per hour / 24 h.
 - **Packet traffic** (node page of a repeater): packets received and sent per hour, in the last 24 h and per day for
@@ -285,6 +287,8 @@ if something is broken.
 - **On desktop** (from 1000 px width): list and chat side by side, 😊 button, Enter sends, Shift+Enter adds a new
   line.
 - **Reload:** ☰ → Reload. The app itself can no longer be dragged, so there is no pull-to-refresh.
+- **Tap the version** at the bottom of the ☰ menu to open the project page on GitHub (just a link; the app itself never
+  contacts GitHub).
 
 </details>
 <details>

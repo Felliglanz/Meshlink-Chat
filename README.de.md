@@ -265,6 +265,8 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 - **Kontakte** (👥): Favoriten / Alle / Repeater. ☆/★ setzt den Favoriten in MeshMonitor und auf dem Companion.
 - **Node-Seite:** Status per Funk abfragen (max. 1×/Min.), Verläufe (Akku, Rauschen, Pakete), Traceroute,
   gespeicherter Pfad, Direkt-Ping, Pfad zurücksetzen/suchen, Nachbarn, Reach. Alles lässt sich auch auf der Karte zeigen.
+- **Nachbarn abfragen:** Ein Repeater schickt je Anfrage höchstens 10 Nachbarn (Grenze der Firmware). „Weitere laden“
+  holt die nächsten, „Auf Karte“ zeigt danach alle geladenen. Jede Seite ist eine eigene Anfrage per Funk.
 - **Repeater-Übersicht:** alle Favoriten-Repeater mit Ampel, zuletzt gehört, Akku, Rauschen, SNR, Laufzeit und Paketen pro
   Stunde bzw. 24 h.
 - **Paketverkehr** (Node-Seite eines Repeaters): empfangene und gesendete Pakete pro Stunde, in den letzten 24 h und
@@ -283,6 +285,7 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
   Gerät; die Wahl liegt als Cookie im Browser, auf dem Server wird nichts gespeichert.
 - **Am PC** (ab 1000 px Breite): Liste und Chat nebeneinander, 😊-Knopf, Enter sendet, Umschalt+Enter macht eine neue Zeile.
 - **Neu laden:** ☰ → Neu laden. Die App selbst lässt sich nicht mehr mitziehen, das Herunterziehen zum Neuladen gibt es deshalb nicht.
+- **Version** unten im ☰-Menü antippen öffnet die Projektseite auf GitHub (nur ein Link; die App selbst ruft GitHub nie ab).
 
 </details>
 <details>
