@@ -379,6 +379,55 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       let body = ''; for await (const c of req) body += c; console.log('[mock-mc] advert', body);
       return J(200, { success: true, data: { mode: JSON.parse(body || '{}').mode } });
     }
+    // Repeater-Verwaltung wie MeshMonitor (…/meshcore/admin/*): Passwort "admin" = Admin, "" = Gast,
+    // "noreply" = keine Antwort, sonst abgelehnt. Befehle nur mit Admin-Sitzung; gefährliche nur mit confirm.
+    const am = /^\/api\/sources\/mc1\/meshcore\/admin\/(session|status)\/([0-9a-f]{64})$/.exec(url.pathname);
+    const A = globalThis.mockAdmin || (globalThis.mockAdmin = { sessions: new Set(), saved: new Map(), conf: new Map() });
+    const later = (ms, fn) => new Promise((r) => setTimeout(() => r(fn()), ms));
+    const readJson = async () => { let body = ''; for await (const c of req) body += c; return JSON.parse(body || '{}'); };
+    if (url.pathname === `${mc}/admin/credentials-capability`) return J(200, { success: true, data: { canRemember: true } });
+    if (am && am[1] === 'session' && req.method === 'GET') return J(200, { success: true, data: A.sessions.has(am[2]) ? { active: true, loggedInAt: Date.now() - 600000, isAdmin: true } : { active: false, reason: 'none' } });
+    if (am && am[1] === 'session' && req.method === 'DELETE') { A.sessions.delete(am[2]); return J(200, { success: true }); }
+    if (am && am[1] === 'status') {
+      if (!A.sessions.has(am[2])) return later(1500, () => J(404, { success: false, error: 'No status received' }));
+      return later(1500, () => J(200, { success: true, data: { batteryMv: 4040, uptimeSecs: 682562, queueLen: 0, noiseFloor: -95, lastRssi: -56, lastSnr: 12.75, packetsRecv: 243396, packetsSent: 42298, airTimeSecs: 33377, rxAirTimeSecs: 198189, sentFlood: 32607, sentDirect: 9691, recvFlood: 219978, recvDirect: 23186, errors: 0, floodDups: 51234, directDups: 812, recvErrors: 17 } }));
+    }
+    if ((url.pathname === `${mc}/admin/login` || url.pathname === `${mc}/admin/login-with-saved`) && req.method === 'POST') {
+      const q = await readJson(); const pkq = String(q.publicKey || '');
+      const saved = url.pathname.endsWith('-with-saved');
+      if (saved && !A.saved.has(pkq)) return J(404, { success: false, error: 'No saved credential for this node', code: 'NO_STORED_CREDENTIAL' });
+      const pw = saved ? A.saved.get(pkq) : String(q.password ?? '');
+      console.log('[mock-mc] admin login', pkq.slice(0, 8), saved ? '(gespeichert)' : '');
+      if (pw === 'noreply') return later(3000, () => J(401, { success: false, error: 'Login failed', reason: 'no_reply', attempts: 3 }));
+      if (pw !== 'admin' && pw !== '') return later(1500, () => J(401, { success: false, error: 'Login failed', reason: 'rejected', attempts: 1 }));
+      return later(2000, () => {
+        if (pw === 'admin') A.sessions.add(pkq); else A.sessions.delete(pkq);
+        if (q.rememberPassword) A.saved.set(pkq, pw);
+        return J(200, { success: true, message: 'Login successful', persisted: Boolean(q.rememberPassword) });
+      });
+    }
+    if (url.pathname === `${mc}/admin/cli` && req.method === 'POST') {
+      const q = await readJson(); const pkq = String(q.publicKey || ''); const cmd = String(q.command || '').trim();
+      console.log('[mock-mc] admin cli', pkq.slice(0, 8), cmd);
+      if (/\b(reboot|erase|clkreboot|factory|poweroff|shutdown)\b(?!\.)|\bset\s+prv\.key\b/i.test(cmd) && q.confirm !== true) return J(400, { success: false, error: 'Destructive command requires confirm:true in the request body', code: 'DANGER_CONFIRM_REQUIRED' });
+      if (!A.sessions.has(pkq)) return later(4000, () => J(504, { success: false, error: 'CLI command timed out', code: 'CLI_TIMEOUT' }));
+      const c = A.conf.get(pkq) || { name: 'RPT Mitte', repeat: 'on', 'advert.interval': '0', 'flood.advert.interval': '12', lat: '51.2277', lon: '10.0735', 'guest.password': '' };
+      A.conf.set(pkq, c);
+      const d = new Date(); const p2 = (n) => String(n).padStart(2, '0');
+      let reply;
+      const m = /^(get|set)\s+(\S+)(?:\s+(.*))?$/i.exec(cmd);
+      if (cmd === 'ver') reply = 'v1.12.0 (Build: 03-Okt-2026)';
+      else if (cmd === 'clock') reply = `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} - ${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()} UTC`;
+      else if (cmd === 'clock sync') reply = 'OK - clock set';
+      else if (cmd === 'advert') reply = 'OK - Advert sent';
+      else if (cmd === 'neighbors') reply = 'RPT Hafen  SNR: 9.5 dB  heard: 3m ago\nRPT Nordhang  SNR: -4.2 dB  heard: 1h12m ago';
+      else if (/^reboot$/i.test(cmd)) reply = '';
+      else if (m && m[1].toLowerCase() === 'get') reply = m[2] === 'radio' ? '> 869.618,62.5,8,8' : m[2] in c ? `> ${c[m[2]]}` : '??: unknown config';
+      else if (m && m[1].toLowerCase() === 'set') { if (m[2] in c) { c[m[2]] = m[3] || ''; reply = 'OK'; } else reply = 'unknown config: ' + m[2]; }
+      else if (/^password\s+/.test(cmd)) reply = 'password now: ********';
+      else reply = 'Unknown command';
+      return later(1200, () => J(200, { success: true, data: { reply, elapsedMs: 1180 } }));
+    }
     const rs = /^\/api\/sources\/mc1\/meshcore\/messages\/([^/]+)\/resend$/.exec(url.pathname);
     if (rs && req.method === 'POST') {
       const id = decodeURIComponent(rs[1]); const m = messages.find((x) => x.id === id);

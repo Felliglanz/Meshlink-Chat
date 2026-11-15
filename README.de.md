@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.3.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.4.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -112,6 +112,7 @@ ist dafür nicht nötig. Fehlt ein Recht, sagt die App das an der jeweiligen Ste
 | Traceroute | `traceroute` lesen + schreiben |
 | Scope-Liste und Standard-Scope | `configuration` lesen |
 | Live-Karte, Paket-Analyzer, Reach | `packetmonitor` lesen |
+| Repeater-Verwaltung (nur mit `REMOTE_ADMIN=1`) | `remote_admin` lesen + schreiben |
 
 </details>
 
@@ -281,6 +282,29 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 - **Sprache** (Einstellungen): *Automatisch* folgt dem Browser, sonst Deutsch oder Englisch fest. Gilt nur auf diesem
   Gerät; die Wahl liegt als Cookie im Browser, auf dem Server wird nichts gespeichert.
 - **Am PC** (ab 1000 px Breite): Liste und Chat nebeneinander, 😊-Knopf, Enter sendet, Umschalt+Enter macht eine neue Zeile.
+- **Neu laden:** ☰ → Neu laden. Die App selbst lässt sich nicht mehr mitziehen, das Herunterziehen zum Neuladen gibt es deshalb nicht.
+
+</details>
+<details>
+<summary><b>🔧 Repeater-Verwaltung (Admin)</b></summary>
+
+Ausgeschaltet, bis du in der `.env` **`REMOTE_ADMIN=1`** setzt und den Dienst neu startest
+(`systemctl restart meshlink-chat`). Dann steht auf der Node-Seite eines Repeaters oder Room-Servers **🔧 Verwaltung**.
+Alles läuft über MeshMonitor; der Token braucht `remote_admin` lesen + schreiben, und der Repeater muss als Kontakt auf
+deinem Gerät gespeichert sein.
+
+- **Anmelden** mit dem Admin-Passwort des Repeaters. MeshLink Chat speichert es nicht. Auf Wunsch merkt es sich
+  **MeshMonitor** verschlüsselt, dann reicht später „Mit gemerktem Passwort anmelden“. Die Anmeldung kann bis zu
+  2 Minuten dauern. MeshMonitor merkt sich die Sitzung; „Abmelden“ vergisst sie, sendet aber nichts.
+- **Status:** Akku, Laufzeit, Sende- und Empfangszeit, RSSI, SNR, Rauschpegel, Paketzähler (Flood/Direkt), Duplikate, Fehler.
+- **Konsole:** beliebige Befehle der Repeater-Firmware (`ver`, `get …`, `set …`, `neighbors` …), eine Antwort je Befehl.
+- **Einstellungen:** Name, Position, Advert-Intervalle lesen und speichern; Weiterleiten an/aus, Advert senden, Uhrzeit
+  lesen und synchronisieren, Nachbarn (mit Karte), Funk-Einstellungen, Version, Gast-Passwort, Neustart.
+- **Gefährliche Befehle** (`reboot`, `erase`, `factory` …) laufen erst, wenn du den Namen des Repeaters eintippst.
+- **Jede Abfrage ist Funkverkehr**, deshalb gibt es nichts automatisch, nur auf Knopfdruck.
+
+**Bedenke:** Wer die App öffnen kann, kann damit Repeater umstellen. Schalte es nur ein, wenn nur du (bzw. Leute, denen
+du das zutraust) Zugang zur App haben.
 
 </details>
 
@@ -304,6 +328,7 @@ Antworten von MeshMonitor.
   (40 insgesamt) ist der Login 15 Minuten gesperrt.
 - Der Dienst läuft ohne Rechte in einer systemd-Sandbox und darf nur in sein Zustandsverzeichnis schreiben.
 - Content-Security-Policy erlaubt nur die eigenen Dateien und die Kachel-Anbieter. Live-Verbindungen sind auf 50 begrenzt.
+- Repeater-Verwaltung ist ab Werk aus (`REMOTE_ADMIN`). Admin-Passwörter speichert MeshLink Chat nie.
 - Bitte **nicht direkt ins Internet** stellen, sondern nur hinter HTTPS-Proxy oder Tunnel, am besten mit Zugangsschutz.
 
 ## Weitere Sprache hinzufügen

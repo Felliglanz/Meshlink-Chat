@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.3.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.4.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -112,6 +112,7 @@ new token. If a permission is missing, the app says so in the relevant place; ev
 | Traceroute | `traceroute` read + write |
 | Scope list and default scope | `configuration` read |
 | Live map, packet analyzer, reach | `packetmonitor` read |
+| Repeater admin (only with `REMOTE_ADMIN=1`) | `remote_admin` read + write |
 
 </details>
 
@@ -283,6 +284,28 @@ if something is broken.
   device only; the choice is a cookie in the browser, nothing is stored on the server.
 - **On desktop** (from 1000 px width): list and chat side by side, 😊 button, Enter sends, Shift+Enter adds a new
   line.
+- **Reload:** ☰ → Reload. The app itself can no longer be dragged, so there is no pull-to-refresh.
+
+</details>
+<details>
+<summary><b>🔧 Repeater admin</b></summary>
+
+Off until you set **`REMOTE_ADMIN=1`** in the `.env` and restart the service (`systemctl restart meshlink-chat`).
+Then the node page of a repeater or room server shows **🔧 Manage**. Everything runs through MeshMonitor; the token
+needs `remote_admin` read + write, and the repeater must be saved as a contact on your device.
+
+- **Log in** with the repeater's admin password. MeshLink Chat does not store it. If you like, **MeshMonitor**
+  remembers it encrypted, then "Log in with remembered password" is enough later. The login can take up to 2 minutes.
+  MeshMonitor remembers the session; "Log out" forgets it but sends nothing.
+- **Status:** battery, uptime, TX and RX air time, RSSI, SNR, noise floor, packet counters (flood/direct), duplicates, errors.
+- **Console:** any repeater firmware command (`ver`, `get …`, `set …`, `neighbors` …), one reply per command.
+- **Settings:** read and save name, position and advert intervals; forwarding on/off, send advert, read and sync the
+  clock, neighbours (with map), radio settings, version, guest password, reboot.
+- **Dangerous commands** (`reboot`, `erase`, `factory` …) only run after you type the repeater's name.
+- **Every query is radio traffic**, so nothing runs automatically, only when you press a button.
+
+**Keep in mind:** anyone who can open the app can reconfigure repeaters with it. Only turn it on if only you (or people
+you trust with that) have access to the app.
 
 </details>
 
@@ -307,6 +330,7 @@ raw responses.
 - The service runs without privileges in a systemd sandbox and may only write to its state directory.
 - The Content Security Policy only allows the app's own files and the tile providers. Live connections are limited
   to 50.
+- Repeater admin is off by default (`REMOTE_ADMIN`). MeshLink Chat never stores admin passwords.
 - Please **don't expose it directly to the internet**, only behind an HTTPS proxy or tunnel, ideally with access
   protection.
 

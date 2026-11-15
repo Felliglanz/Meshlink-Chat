@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -27,6 +27,8 @@ const cfg = {
   myNodeId: process.env.MY_NODE_ID || '',
   myName: process.env.MY_NAME || '',
   sessionDays: Number(process.env.SESSION_DAYS || 30),
+  // Repeater-Verwaltung (Admin-Login, Befehle) über MeshMonitor: nur wenn ausdrücklich eingeschaltet
+  remoteAdmin: /^(1|true|yes|ja|on)$/i.test(process.env.REMOTE_ADMIN || ''),
 };
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -384,7 +386,7 @@ async function refreshMeta() {
 
 function metaPayload() {
   const mp = posOf(nodeById(state.me) || state.nodes.find((n) => n.local));
-  return { version: VERSION, appVersion: APP_VERSION, mmVersion: state.mmVersion || null, caps: msgCaps(), mePos: mp, sources: state.sources, source: state.source, me: state.me, myNames: [...state.myNames], otherNames: [...state.otherNames], otherSources: state.otherSources, nodes: state.nodes.map(({ lat, lon, ...n }) => n), channels: state.channels };
+  return { version: VERSION, appVersion: APP_VERSION, mmVersion: state.mmVersion || null, caps: msgCaps(), admin: cfg.remoteAdmin, mePos: mp, sources: state.sources, source: state.source, me: state.me, myNames: [...state.myNames], otherNames: [...state.otherNames], otherSources: state.otherSources, nodes: state.nodes.map(({ lat, lon, ...n }) => n), channels: state.channels };
 }
 
 // Rohe Nachricht von MeshMonitor -> Nachricht für die App (eigene erkannt, Weg, Reaktion, Scope).
@@ -557,6 +559,40 @@ async function fetchDmRoute(id, pk, src) {
   e.msg.outRoute = route;
   e.sig = JSON.stringify(e.msg);
   broadcast('messages', [e.msg]);
+}
+
+// ---------------------------------------------------------------- Repeater-Verwaltung: Hintergrund-Aufträge
+// Nur im Speicher, je Auftrag Ergebnis oder Fehler; nach 5 Min. vergessen. Höchstens 20 gleichzeitig.
+const ADMIN_DANGER = /\b(reboot|erase|clkreboot|factory|poweroff|shutdown)\b(?!\.)|\bset\s+prv\.key\b/i; // wie MeshMonitor
+const adminJobs = new Map();
+function adminJob(fn) {
+  const now = Date.now();
+  for (const [k, j] of adminJobs) if (now - j.at > 5 * 60000) adminJobs.delete(k);
+  if ([...adminJobs.values()].filter((j) => j.state === 'run').length >= 20) return null;
+  const id = crypto.randomBytes(9).toString('base64url');
+  const job = { state: 'run', at: now };
+  adminJobs.set(id, job);
+  fn().then((result) => Object.assign(job, { state: 'done', result }))
+    .catch((e) => {
+      console.error('[admin]', e.status || '', e.code || '', e.message);
+      Object.assign(job, { state: 'error', error: e.status === 401 ? mmErrT('srv.tokenRejected') : e.message, code: e.code || (e.status === 403 ? 'FORBIDDEN' : e.status === 504 ? 'CLI_TIMEOUT' : null) });
+    });
+  return id;
+}
+function startAdminJob(res, T, fn) {
+  const job = adminJob(fn);
+  return job ? send(res, 202, { job }) : send(res, 429, { error: T('srv.adminBusy') });
+}
+// Status eines Repeaters (MeshMonitor admin/status) in dieselben Namen wie die Status-Telemetrie
+function adminStatusValues(st) {
+  const map = { uptimeSecs: 'status_uptime_secs', noiseFloor: 'status_noise_floor', lastRssi: 'status_last_rssi', lastSnr: 'status_last_snr',
+    airTimeSecs: 'status_air_time_secs', rxAirTimeSecs: 'status_rx_air_time_secs', packetsRecv: 'status_packets_recv', packetsSent: 'status_packets_sent',
+    recvFlood: 'status_recv_flood', recvDirect: 'status_recv_direct', sentFlood: 'status_sent_flood', sentDirect: 'status_sent_direct',
+    floodDups: 'status_flood_dups', directDups: 'status_direct_dups', queueLen: 'status_queue_len', errors: 'status_errors', recvErrors: 'status_recv_errors' };
+  const out = {};
+  if (Number.isFinite(Number(st.batteryMv)) && st.batteryMv != null) out.status_battery_volts = Number(st.batteryMv) / 1000;
+  for (const [k, v] of Object.entries(map)) if (st[k] != null && Number.isFinite(Number(st[k]))) out[v] = Number(st[k]);
+  return out;
 }
 
 let customTraceBusy = false; // immer nur eine eigene Traceroute gleichzeitig (sie ändert kurz einen Kontakt-Pfad)
@@ -1946,6 +1982,78 @@ async function handleApi(req, res, url) {
       setTimeout(() => schedule(0), 2500);
       return send(res, 200, { ok: true, resendCount: r?.resendCount ?? null });
     } catch (e) { return mmError(res, e, T); }
+  }
+
+  // ---- Repeater-Verwaltung (REMOTE_ADMIN=1): alles über MeshMonitor (…/meshcore/admin/*), MeshLink speichert nichts.
+  // Das Passwort wird nur durchgereicht; merken kann es auf Wunsch MeshMonitor (verschlüsselt).
+  // Anmelden, Status und Befehle dauern bis zu 2 Min. (Funk) -> Auftrag im Hintergrund, die App fragt nach.
+  if (p.startsWith('/api/admin/')) {
+    if (!cfg.remoteAdmin) return send(res, 403, { error: T('srv.adminOff'), code: 'ADMIN_DISABLED' });
+    if (!state.source || state.source.protocol !== 'meshcore') return send(res, 400, { error: T('srv.adminMeshcore') });
+    const adm = `${mcp()}/admin`;
+    if (p === '/api/admin/job' && req.method === 'GET') {
+      const j = adminJobs.get(str(url.searchParams.get('id')));
+      if (!j) return send(res, 404, { error: T('srv.adminJobGone') });
+      return send(res, 200, j.state === 'run' ? { state: 'run', since: j.at } : { state: j.state, result: j.result ?? null, error: j.error ?? null, code: j.code ?? null });
+    }
+    if (p === '/api/admin/session' && req.method === 'GET') {
+      const pk = pkOf(url.searchParams.get('id'));
+      if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
+      try {
+        const [sess, cap] = await Promise.all([ // beides nur Datenbank bei MeshMonitor, kein Funk
+          mm(`${adm}/session/${pk}`, { raw: true }).then(unwrap),
+          mm(`${adm}/credentials-capability`, { raw: true }).then(unwrap).catch(() => null),
+        ]);
+        return send(res, 200, { active: Boolean(sess?.active), reason: sess?.reason || null, loggedInAt: toMs(sess?.loggedInAt) || null, canRemember: Boolean(cap?.canRemember) });
+      } catch (e) { return mmError(res, e, T); }
+    }
+    if (p === '/api/admin/logout' && req.method === 'POST') {
+      const { pk } = await pkFromBody();
+      if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
+      try { await mm(`${adm}/session/${pk}`, { raw: true, method: 'DELETE' }); return send(res, 200, { ok: true }); } catch (e) { return mmError(res, e, T); }
+    }
+    if (p === '/api/admin/login' && req.method === 'POST') {
+      const { b, pk } = await pkFromBody();
+      if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
+      const saved = b.saved === true;
+      const password = str(b.password).slice(0, 64);
+      return startAdminJob(res, T, async () => {
+        try {
+          const r = saved
+            ? await mm(`${adm}/login-with-saved`, { raw: true, method: 'POST', body: { publicKey: pk }, timeout: 130000 })
+            : await mm(`${adm}/login`, { raw: true, method: 'POST', body: { publicKey: pk, password, rememberPassword: b.remember === true }, timeout: 130000 });
+          return { ok: true, persisted: r?.persisted ?? unwrap(r)?.persisted ?? null };
+        } catch (e) {
+          // 401 heißt hier "Repeater hat abgelehnt bzw. nicht geantwortet", nicht "Token falsch"
+          const reason = e.body?.reason || e.body?.code || e.code || null;
+          if (e.status === 401 && e.body?.reason) throw Object.assign(new Error(reason === 'no_reply' ? T('srv.adminNoReply') : T('srv.adminRejected')), { code: reason === 'no_reply' ? 'NO_REPLY' : 'REJECTED' });
+          if (e.status === 404 && reason === 'NO_STORED_CREDENTIAL') throw Object.assign(new Error(T('srv.adminNoSaved')), { code: reason });
+          if (e.status === 410) throw Object.assign(new Error(T('srv.adminSavedOld')), { code: 'CREDENTIAL_KEY_ROTATED' });
+          throw e;
+        }
+      });
+    }
+    if (p === '/api/admin/status' && req.method === 'POST') {
+      const { pk } = await pkFromBody();
+      if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
+      return startAdminJob(res, T, async () => {
+        const st = unwrap(await mm(`${adm}/status/${pk}`, { raw: true, timeout: 95000 })) || {};
+        return { ts: Date.now(), values: adminStatusValues(st) };
+      });
+    }
+    if (p === '/api/admin/cli' && req.method === 'POST') {
+      const { b, pk } = await pkFromBody();
+      const command = str(b.command).trim();
+      if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
+      if (!command || Buffer.byteLength(command) > 230) return send(res, 400, { error: T('srv.adminBadCmd') });
+      // Gefährliche Befehle nur mit Bestätigung (dieselbe Liste wie MeshMonitor, das sie zusätzlich selbst prüft)
+      if (ADMIN_DANGER.test(command) && b.confirm !== true) return send(res, 400, { error: T('srv.adminConfirm'), code: 'DANGER_CONFIRM_REQUIRED' });
+      return startAdminJob(res, T, async () => {
+        const r = unwrap(await mm(`${adm}/cli`, { raw: true, method: 'POST', body: { publicKey: pk, command, confirm: b.confirm === true }, timeout: 85000 })) || {};
+        return { reply: str(r.reply ?? r.response ?? '').slice(0, 4000), ms: r.elapsedMs ?? null };
+      });
+    }
+    return send(res, 404, { error: 'not found' });
   }
 
   // Node-Details: Telemetrie-Verlauf (nur lesen, nichts wird gespeichert)
