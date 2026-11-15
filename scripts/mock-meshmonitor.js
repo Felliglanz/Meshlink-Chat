@@ -1,6 +1,7 @@
 'use strict';
 /* Nur für lokale Tests: simuliert die MeshMonitor v1-API (Meshtastic-Quelle). */
 const http = require('node:http');
+const crypto = require('node:crypto');
 
 const PORT = Number(process.env.MOCK_PORT || 18080);
 const TOKEN = process.env.MOCK_TOKEN || 'mm_v1_test';
@@ -57,6 +58,9 @@ if (process.env.MOCK_PROTO === 'meshcore') {
     { nodeId: 'mc:' + 'c4'.repeat(32), publicKey: 'c4'.repeat(32), longName: 'Clubhaus-Brett', advType: 3, lastHeard: Math.floor(Date.now() / 1000) - 120, latitude: 51.215, longitude: 9.9900 },
   );
   var packets = []; let pkid = 1;
+  // Gruppen-Paket zu einer Nachricht: Bytes hängen nur an Nachricht + Zeitstempel (wie verschlüsselt), nicht am Weg
+  var grpPacket = (m, dt, path, snr) => setTimeout(() => packets.unshift({ protocol: 'meshcore', id: pkid++, timestamp: Date.now(), payload_type: 5, payload_type_name: 'GRP_TXT', route_type_name: 'FLOOD',
+    path_hops: path, snr, plaintext: `${m.fromName}: ${m.text}`, _pl: '11' + crypto.createHash('sha256').update(`${m.id}|${m.timestamp}`).digest('hex').slice(0, 56) }), dt);
   // Rohdaten (raw_hex) wie im MeshCore-Funkformat erzeugen, damit der Paket-Analyzer etwas zu zerlegen hat
   var mockRaw = (p) => {
     if (p.raw_hex !== undefined) return p;
@@ -83,7 +87,7 @@ if (process.env.MOCK_PROTO === 'meshcore') {
         const ts = Buffer.alloc(4); ts.writeUInt32LE(Math.floor(p.timestamp / 1000));
         payload = [...Buffer.from(sk, 'hex'), ...ts, ...rnd(64), 0x80 | 0x10 | 2, ...ll, ...name];
       } else if (p.payload_type === 3) payload = rnd(4);
-      else if (p.payload_type === 5) payload = [0x11, ...rnd(Math.max(8, (p.payload_size || 40) - 1))];
+      else if (p.payload_type === 5) payload = p._pl ? [...Buffer.from(p._pl, 'hex')] : [0x11, ...rnd(Math.max(8, (p.payload_size || 40) - 1))]; // _pl: feste Bytes einer Nachricht (alle Kopien gleich)
       else if (p.payload_type === 7) payload = [0x7a, ...Buffer.from(sk, 'hex'), ...rnd(18)];
       else payload = [0xbb, parseInt(sk.slice(0, 2), 16), ...rnd(Math.max(6, (p.payload_size || 30) - 2))];
     }
@@ -257,7 +261,7 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       const f = packets.map(mockRaw).filter((x) => x.timestamp > since && (pt == null || x.payload_type === Number(pt)) && (rt == null || x.route_type === Number(rt))
         && (!ph || (x.path_hops || []).includes(ph)) && (!sh || x.src_hash === sh) && (!snd || (x.sender_public_key || '').startsWith(snd))
         && (!sq || `${x.advert_name || ''} ${x.plaintext || ''} ${x.payload_type_name}`.toLowerCase().includes(sq)));
-      return J(200, { success: true, total: f.length, offset: off, limit: lim, data: f.slice(off, off + lim) });
+      return J(200, { success: true, total: f.length, offset: off, limit: lim, data: f.slice(off, off + lim).map(({ _pl, ...x }) => x) });
     }
     if (url.pathname === `${b}/messages` && req.method === 'POST') {
       let body = ''; for await (const c of req) body += c; const q = JSON.parse(body);
@@ -274,9 +278,13 @@ if (process.env.MOCK_PROTO === 'meshcore') {
         // gehört von (ab 4.17.3 im MeshCore-Teil als heardBy); "#noheard" = keiner
         if (!q.text.includes('#noheard')) setTimeout(() => { mm.heardBy = [{ hash: 'b4', name: 'RPT Mitte', snr: 7.5, hops: 1 }, { hash: 'b3', name: null, snr: 3.25, hops: 2 }]; }, 2000);
       }
-      if (!q.toNodeId && !q.text.includes('#noecho')) {
-        const echo = (dt, path, snr) => setTimeout(() => packets.unshift({ protocol: 'meshcore', id: pkid++, timestamp: Date.now(), payload_type: 5, payload_type_name: 'GRP_TXT', path_hops: path, snr, plaintext: q.text }), dt);
-        echo(1500, ['b46f'], 11.75); echo(2500, ['b3f8'], 12.25); echo(3500, ['b3f8', 'fd67'], -7.75);
+      if (!q.toNodeId) {
+        // Wie MeshMonitor: eigene Aussendung (ohne Weg) und Echos der Repeater, alle mit denselben verschlüsselten Bytes.
+        // "#noecho" = keine Echos (z. B. für Resend-Tests); "#clash" = jemand anderes schreibt gleichzeitig denselben Text
+        const m = messages[0];
+        grpPacket(m, 300, [], null);
+        if (!q.text.includes('#noecho')) { grpPacket(m, 1500, ['b46f'], 11.75); grpPacket(m, 2500, ['b3f8'], 12.25); grpPacket(m, 3500, ['b3f8', 'fd67'], -7.75); }
+        if (q.text.includes('#clash')) grpPacket({ ...m, id: `${m.id}-fremd`, fromName: 'Alex' }, 2000, ['c4c4'], 4);
       }
       return J(201, { success: true, data: { messageId: `sent-${t}-z`, deliveryState: 'pending' } });
     }
@@ -372,7 +380,11 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       console.log('[mock-mc] resend', id);
       if (!m) return J(404, { success: false, error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
       m.resends = (m.resends || 0) + 1;
-      setTimeout(() => packets.unshift({ protocol: 'meshcore', id: pkid++, timestamp: Date.now(), payload_type: 5, payload_type_name: 'GRP_TXT', path_hops: ['b46f'], snr: 10, plaintext: m.text }), 1500);
+      // Resend: gleiche Bytes wie das Original -> eigene Aussendung und Echos; dazu ein fremder Absender mit demselben Text (darf nicht zählen)
+      if (m.channel >= 0) {
+        grpPacket(m, 300, [], null); grpPacket(m, 1500, ['b46f'], 10); grpPacket(m, 2600, ['b46f', '7a7a'], -3.5);
+        grpPacket({ ...m, id: `${m.id}-fremd`, fromName: 'Alex' }, 2000, ['b3f8'], 6);
+      }
       return J(200, { success: true, data: { id, resendCount: m.resends, lastResendAt: Date.now() } });
     }
     // Node-Details (Status, Telemetrie, Traceroute, Nachbarn)

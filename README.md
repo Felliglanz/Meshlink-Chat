@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.2.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.2.1` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -197,7 +197,8 @@ if something is broken.
   back (with MeshCore, "send reactions" must be allowed for the source in MeshMonitor).
 - **📡 n** under your own channel messages shows how many repeaters were heard forwarding it. Tap it to see them
   with their position in the path and SNR. An SNR value only exists for the station your device heard directly.
-  The others only appear in the path.
+  The others only appear in the path. Echoes are matched by the packet's encrypted bytes, which are identical in every
+  copy. So echoes after a resend count too, and someone sending the same text at the same time is not counted.
 - **Your own DM:** 📡 appears once MeshMonitor has heard repeater echoes. After delivery (✓✓) the details show the
   **path to the recipient** that the recipient reports back with the acknowledgement. Long-pressing your own DM
   offers **reset path** and, as long as it isn't delivered, **resend by flood**.

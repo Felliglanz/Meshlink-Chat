@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -230,6 +230,9 @@ const state = {
   dmRoute: new Map(), // msgId -> {hops, flood} – Weg einer zugestellten eigenen DM (Kontakt-Pfad nach dem ACK); null = schon versucht
   dmHeardDirty: new Set(),
   seenPackets: new Set(),
+  echoKey: new Map(), // msgId -> Fingerabdruck (verschlüsselte Bytes) der eigenen Kanalnachricht
+  echoByKey: new Map(), // Fingerabdruck -> msgId
+  resendAt: new Map(), // msgId -> [Zeitpunkte der Resends] (öffnet jeweils ein neues Echo-Fenster)
   lastPacketTs: 0,
   backfilled: new Set(),
   reactions: new Map(), // MeshCore: msgId -> {target, emoji} (aus /api/sources/…/meshcore/messages)
@@ -446,6 +449,8 @@ async function pollMessages() {
     for (const e of sorted.slice(0, state.msgs.size - cfg.historyLimit * 2)) state.msgs.delete(e.msg.id);
   }
   for (const id of state.heard.keys()) if (!state.msgs.has(id)) state.heard.delete(id);
+  for (const [id, key] of state.echoKey) if (!state.msgs.has(id)) { state.echoKey.delete(id); state.echoByKey.delete(key); }
+  for (const id of state.resendAt.keys()) if (!state.msgs.has(id)) state.resendAt.delete(id);
   if (state.dmHeard.size > 500) for (const id of state.dmHeard.keys()) if (!state.msgs.has(id)) state.dmHeard.delete(id);
   if (state.dmRoute.size > 500) for (const id of state.dmRoute.keys()) if (!state.msgs.has(id)) state.dmRoute.delete(id);
   if (state.source.protocol === 'meshcore') scheduleDmRoutes();
@@ -458,9 +463,36 @@ async function pollMessages() {
 
 // ---------------------------------------------------------------- Repeater-Echos ("gehört von")
 // Eine gesendete Kanalnachricht wird von Repeatern weitergesendet; unser Node hört diese Kopien.
-// MeshMonitor protokolliert sie entschlüsselt im Paket-Log (GRP_TXT + plaintext + path_hops).
+// MeshMonitor protokolliert sie entschlüsselt im Paket-Log (GRP_TXT + plaintext + path_hops + raw_hex).
+// Zuordnung über den Fingerabdruck: Repeater ändern beim Weiterleiten nur den Weg im Paketkopf, die
+// verschlüsselten Bytes dahinter bleiben gleich – auch bei einem Resend (gleiche Bytes, gleicher Zeitstempel).
+// Text und Zeit dienen nur, um den Fingerabdruck einmal zu finden (oder wenn ein Paket ohne raw_hex kommt).
 
-const ECHO_WINDOW_MS = 60000;
+const ECHO_WINDOW_MS = 60000; // so lange nach dem Senden bzw. nach jedem Resend nach Echos schauen
+const ECHO_MAX_AGE_MS = 3600000 + ECHO_WINDOW_MS; // Resend geht höchstens 1 Std. nach dem Senden
+
+// Fingerabdruck eines MeshCore-Pakets: alles hinter Kopf, Transport-Codes und Weg (null = nicht lesbar)
+function payloadKey(p) {
+  const hex = str(p.raw_hex).toLowerCase();
+  if (hex.length < 6 || hex.length % 2 || !/^[0-9a-f]+$/.test(hex)) return null;
+  const b = Buffer.from(hex, 'hex');
+  const route = b[0] & 0x03;
+  let i = route === 0 || route === 3 ? 5 : 1; // TRANSPORT_FLOOD/-DIRECT: 4 Byte Transport-Codes
+  if (i >= b.length) return null;
+  const n = b[i] & 0x3f, size = (b[i] >> 6) + 1; // Pfadlänge: untere 6 Bit Anzahl, obere 2 Bit Hash-Größe − 1
+  i += 1 + n * size;
+  if (Array.isArray(p.path_hops) && p.path_hops.length !== n) return null; // passt nicht zum Weg -> lieber nicht raten
+  return i < b.length ? b.subarray(i).toString('hex') : null;
+}
+// Zeitpunkte, ab denen Echos einer eigenen Nachricht kommen: Senden und jedes Resend
+const echoStarts = (m) => [m.ts, ...(state.resendAt.get(m.id) || [])];
+const inEchoWindow = (t, m) => echoStarts(m).some((w) => t >= w - 2000 && t <= w + ECHO_WINDOW_MS);
+// Klartext eines Gruppen-Pakets ist "Name: Text"; bekannte eigene Namen zuerst, ohne Namen wie bisher
+function ownText(plain, m) {
+  if (plain === m.text) return true;
+  const names = [m.name, ...state.myNames].filter(Boolean);
+  return names.length ? names.some((n) => plain === `${n}: ${m.text}`) : plain.endsWith(`: ${m.text}`);
+}
 
 function nameForHash(h) {
   const rel = state.relays.filter((r) => r.pk.startsWith(h));
@@ -1238,14 +1270,23 @@ function processPackets(list, own) {
     }
     const t = toMs(p.timestamp);
     if (t && t > state.lastPacketTs && t < Date.now() + 60000) state.lastPacketTs = t;
-    if (p.payload_type_name !== 'GRP_TXT' && p.payload_type !== 5) continue;
+    if ((p.payload_type_name !== 'GRP_TXT' && p.payload_type !== 5) || !t) continue;
     const path = Array.isArray(p.path_hops) ? p.path_hops.map((x) => str(x).toLowerCase()).filter(Boolean) : [];
-    if (!path.length || !p.plaintext || !t) continue; // direkt (0 Hops) = kein Repeater
-    const plain = str(p.plaintext);
-    const match = own
-      .filter((m) => (plain === m.text || plain.endsWith(`: ${m.text}`)) && t >= m.ts - 2000 && t <= m.ts + ECHO_WINDOW_MS)
-      .sort((a, b) => a.ts - b.ts)[0];
-    if (!match) continue;
+    const key = payloadKey(p);
+    let match = key ? own.find((m) => m.id === state.echoByKey.get(key)) : null;
+    if (match && (t < match.ts - 2000 || t > match.ts + ECHO_MAX_AGE_MS)) continue;
+    if (!match) {
+      // Noch kein Fingerabdruck: einmalig über Text und Zeit finden. Nachrichten, die schon einen haben,
+      // nehmen keine Pakete mit anderen Bytes mehr an (z. B. jemand anderes schreibt gleichzeitig dasselbe).
+      if (!p.plaintext) continue;
+      const plain = str(p.plaintext);
+      match = own
+        .filter((m) => ownText(plain, m) && inEchoWindow(t, m) && !(key && state.echoKey.has(m.id)))
+        .sort((a, b) => a.ts - b.ts)[0];
+      if (!match) continue;
+      if (key && !state.echoByKey.has(key)) { state.echoKey.set(match.id, key); state.echoByKey.set(key, match.id); }
+    }
+    if (!path.length) continue; // direkt (0 Hops, z. B. die eigene Aussendung) = kein Repeater
     let map = state.heard.get(match.id);
     if (!map) state.heard.set(match.id, (map = new Map()));
     path.forEach((h, i) => {
@@ -1292,10 +1333,11 @@ async function pollEchoes(full) {
       for (const m of todo) state.backfilled.add(m.id);
     }
   }
-  // Laufend: nur solange eine eigene Nachricht jünger als das Echo-Fenster ist
-  const fresh = own.filter((m) => m.ts > now - ECHO_WINDOW_MS - 10000);
+  // Laufend: nur solange ein Echo-Fenster offen ist (nach dem Senden und nach jedem Resend)
+  const open = (m) => echoStarts(m).filter((w) => w > now - ECHO_WINDOW_MS - 10000);
+  const fresh = own.filter((m) => open(m).length);
   if (fresh.length) {
-    const since = Math.max(state.lastPacketTs - 5000, Math.min(...fresh.map((m) => m.ts)) - 3000);
+    const since = Math.max(state.lastPacketTs - 5000, Math.min(...fresh.flatMap(open)) - 3000);
     for (const id of processPackets(await fetchPackets(since, 3), own)) touched.add(id);
     for (const m of fresh) state.backfilled.add(m.id);
   }
@@ -1473,7 +1515,7 @@ async function switchSource(id) {
     lastPacketTs: 0, relays: [], pushReady: false,
   });
   state.myNames = new Set(cfg.myName ? [cfg.myName] : []);
-  for (const c of [state.msgs, state.heard, state.seenPackets, state.backfilled, state.otherNames, state.pkIndex, state.reactions, state.scopes, state.delivery, state.dmHeard, state.dmRoute]) c.clear();
+  for (const c of [state.msgs, state.heard, state.seenPackets, state.backfilled, state.otherNames, state.pkIndex, state.reactions, state.scopes, state.delivery, state.dmHeard, state.dmRoute, state.echoKey, state.echoByKey, state.resendAt]) c.clear();
   await tick();
   broadcast('reset', { source: state.source });
   return state.source;
@@ -1886,6 +1928,7 @@ async function handleApi(req, res, url) {
     if (!id || id.length > 128) return send(res, 400, { error: T('srv.badMessage') });
     try {
       const r = unwrap(await mm(`${mcp()}/messages/${encodeURIComponent(id)}/resend`, { raw: true, method: 'POST', body: {} }));
+      if (state.msgs.has(id)) state.resendAt.set(id, [...(state.resendAt.get(id) || []), Date.now()].slice(-5)); // neues Echo-Fenster
       setTimeout(() => schedule(0), 2500);
       return send(res, 200, { ok: true, resendCount: r?.resendCount ?? null });
     } catch (e) { return mmError(res, e, T); }

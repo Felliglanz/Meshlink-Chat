@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.2.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.2.1` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -196,7 +196,8 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
   sich nicht zurücknehmen (bei MeshCore muss „Reaktionen senden“ in MeshMonitor für die Quelle erlaubt sein).
 - **📡 n** unter eigenen Kanalnachrichten zeigt, wie viele Repeater sie hörbar weitergesendet haben. Antippen zeigt sie
   mit Position im Weg und SNR. Einen SNR-Wert gibt es nur für die Station, die dein Gerät direkt gehört hat. Die übrigen
-  stehen nur im Weg.
+  stehen nur im Weg. Zugeordnet wird über die verschlüsselten Bytes des Pakets, die bei jeder Kopie gleich sind. So zählen
+  auch Echos nach einem Resend, und jemand, der zur selben Zeit denselben Text schreibt, wird nicht mitgezählt.
 - **Eigene DM:** 📡 erscheint, sobald MeshMonitor Repeater-Echos gehört hat. Nach der Zustellung (✓✓) steht in den
   Details der **Weg zum Empfänger**, den der Empfänger mit der Bestätigung zurückmeldet. Eine eigene DM lange
   drücken bietet **Pfad zurücksetzen** und, solange sie nicht zugestellt ist, **per Flood neu senden**.
