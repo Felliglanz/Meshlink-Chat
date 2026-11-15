@@ -2930,6 +2930,7 @@ function renderNodeBody() {
       ${ni.nb == null ? `<div class="muted">${T('common.loading')}</div>` : ni.nb.neighbours.length ? ni.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : `<div class="muted">${T('node.nbNone')}</div>`}
       <div class="node-actions">
         <button class="pill" data-na="nb" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'nb' ? T('node.querying') : T('node.nbQuery')}</button>
+        ${nbMore(ni.nb) ? `<button class="pill" data-na="nbmore" ${ni.busy ? 'disabled' : ''}>${nbMoreLabel(ni.nb)}</button>` : ''}
         ${ni.nb?.neighbours?.length ? `<button class="pill" data-na="nbmap">${T('node.mapBtn')}</button>` : ''}
       </div>
       ${msg('nb')}
@@ -3021,7 +3022,7 @@ const ADM_TOOLS = [
   { key: 'advert', cmd: 'advert', label: () => T('adm.tAdvert'), sub: () => T('adm.tAdvertSub') },
   { key: 'clock', fetch: true, cmd: 'clock', label: () => T('adm.tClock'), sub: () => T('adm.tClockSub') },
   { key: 'sync', cmd: 'clock sync', label: () => T('adm.tSync'), sub: () => T('adm.tSyncSub') },
-  { key: 'neighbors', fetch: true, cmd: 'neighbors', label: () => T('adm.tNeighbors'), sub: () => T('adm.tNeighborsSub') },
+  { key: 'neighbors', fetch: true, nb: true, label: () => T('adm.tNeighbors'), sub: () => T('adm.tNeighborsSub') },
   { key: 'radio', fetch: true, cmd: 'get radio', label: () => T('adm.tRadio'), sub: () => T('adm.tRadioSub') },
   { key: 'ver', fetch: true, cmd: 'ver', label: () => T('adm.tVer'), sub: () => T('adm.tVerSub') },
   { key: 'guest', label: () => T('adm.tGuest'), sub: () => T('adm.tGuestSub'), input: true },
@@ -3092,7 +3093,8 @@ function renderAdminBody() {
             ? `<span class="adm-inline"><button class="pill" data-adm-tool="repeat" ${a.busy ? 'disabled' : ''}>${busy('t:repeat') ? '…' : T('adm.read')}</button><button class="pill" data-adm-repeat="on" ${a.busy ? 'disabled' : ''}>${T('common.on')}</button><button class="pill" data-adm-repeat="off" ${a.busy ? 'disabled' : ''}>${T('common.off')}</button></span>`
             : `<button class="pill" data-adm-tool="${t.key}" ${a.busy ? 'disabled' : ''}>${busy(`t:${t.key}`) ? '…' : t.input ? T('adm.save') : t.danger ? T('adm.run') : t.fetch ? T('adm.fetch') : T('adm.send')}</button>`}
           ${out(`t:${t.key}`)}
-          ${t.key === 'neighbors' && a.nbNodes?.length ? `<button class="pill adm-map" data-adm="nbmap">${T('node.mapBtn')}</button>` : ''}
+          ${t.nb && a.nb ? `<div class="adm-nb">${a.nb.neighbours.length ? a.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : `<div class="muted">${T('node.nbEmpty')}</div>`}
+            <div class="node-actions">${nbMore(a.nb) ? `<button class="pill" data-adm="nbmore" ${a.busy ? 'disabled' : ''}>${busy('t:neighbors') ? '…' : nbMoreLabel(a.nb)}</button>` : ''}${a.nb.neighbours.length ? `<button class="pill" data-adm="nbmap">${T('node.mapBtn')} (${a.nb.neighbours.length})</button>` : ''}</div></div>` : ''}
         </div>`;
       html = `${head}
         <div class="adm-note">${T('adm.airHint')}</div>
@@ -3147,6 +3149,17 @@ function admConfirm(command, run) {
   inp.focus();
 }
 
+async function admNeighbours(more) {
+  const a = S.adm;
+  if (!a || a.busy) return;
+  a.busy = 't:neighbors'; delete a.out['t:neighbors']; renderAdminBody();
+  try { a.nb = await fetchNeighbours(a.id, more ? a.nb : null); } catch (e) {
+    a.out['t:neighbors'] = { err: true, text: e.status === 504 || /timeout/i.test(e.message) ? T('node.nbNoAnswer') : permHint(e, 'nodes:read') };
+  }
+  a.busy = null;
+  if (S.adm === a) renderAdminBody();
+}
+
 async function onAdminClick(e) {
   const a = S.adm;
   if (!a) return;
@@ -3183,9 +3196,10 @@ async function onAdminClick(e) {
   }
   if (act === 'nbmap') {
     const n = node(a.id);
-    showOnMap({ kind: 'star', title: T('node.nbOf', { name: admName(a.id) }), center: { id: a.id, label: n?.long || n?.short }, leaves: a.nbNodes.map((x) => ({ id: x.id, label: x.label, snr: x.snr })) });
+    showOnMap({ kind: 'star', title: T('node.nbOf', { name: admName(a.id) }), center: { id: a.id, label: n?.long || n?.short }, leaves: a.nb.neighbours.map((x) => ({ id: x.id, hash: x.hash, label: `${x.name || `#${x.hash}`}${x.snr != null ? ` · SNR ${x.snr}` : ''}`, snr: x.snr })) });
     return;
   }
+  if (act === 'nbmore') { admNeighbours(true); return; }
   if (b.dataset.admCmd) { admCli(b.dataset.admCmd, { log: true }); return; }
   const f = ADM_FIELDS.find((x) => x.key === (b.dataset.admGet || b.dataset.admSet));
   if (f && b.dataset.admGet) {
@@ -3204,6 +3218,7 @@ async function onAdminClick(e) {
   if (b.dataset.admRepeat) { admCli(`set repeat ${b.dataset.admRepeat}`, { key: 't:repeat' }); return; }
   const t = ADM_TOOLS.find((x) => x.key === b.dataset.admTool);
   if (!t) return;
+  if (t.nb) { admNeighbours(false); return; }
   if (t.input) {
     const v = String(a.draft.guest || '');
     if (v.length > 15 || /\s/.test(v)) { a.out['t:guest'] = { err: true, text: T('adm.badValue') }; renderAdminBody(); return; }
@@ -3211,15 +3226,7 @@ async function onAdminClick(e) {
     a.draft.guest = ''; renderAdminBody();
     return;
   }
-  const r = await admCli(t.cmd, { key: `t:${t.key}` });
-  if (t.key === 'neighbors' && r) {
-    // Ausgabe von MeshMonitor: "Name  SNR: 9.5 dB  heard: 3m ago" je Zeile -> bekannte Nodes für die Karte
-    a.nbNodes = r.split('\n').map((l) => /^(.+?)\s+SNR:\s*(-?[\d.]+)/.exec(l.trim())).filter(Boolean).map((m) => {
-      const hit = [...S.nodes.values()].find((x) => x.long === m[1] || x.short === m[1]);
-      return hit ? { id: hit.id, label: `${m[1]} · SNR ${m[2]}`, snr: Number(m[2]) } : null;
-    }).filter(Boolean);
-    renderAdminBody();
-  }
+  admCli(t.cmd, { key: `t:${t.key}` });
 }
 
 // Paketverkehr eines Repeaters: aus seinen eigenen Zählern (Status-Telemetrie), berechnet im Server (repeaterTraffic).
@@ -3343,10 +3350,22 @@ async function loadContactPath() {
   try { const r = await api(`/api/node/contact?id=${encodeURIComponent(ni.id)}`); if (S.ni === ni) ni.contact = r; } catch (e) { if (S.ni === ni) { ni.contact = { known: false }; ni.msg.conn = { err: true, text: permHint(e, 'nodes:read') }; } }
   if (S.ni === ni && S.view === 'node') renderNodeBody();
 }
-async function loadNeighbours(live) {
+// Nachbarn live vom Repeater: eine Antwort fasst höchstens 10 (Firmware), "Weitere laden" holt die nächste Seite.
+// Seiten werden zusammengeführt (der Repeater sortiert je Anfrage neu, ein Eintrag kann wandern; erster gewinnt).
+async function fetchNeighbours(id, prev = null) {
+  const offset = prev ? prev.neighbours.length : 0;
+  const r = await api(`/api/node/neighbours?id=${encodeURIComponent(id)}&live=1${offset ? `&offset=${offset}` : ''}`);
+  if (!prev) return { ...r, live: true };
+  const seen = new Set(prev.neighbours.map((x) => x.id || x.hash));
+  return { ...r, live: true, neighbours: [...prev.neighbours, ...r.neighbours.filter((x) => !seen.has(x.id || x.hash))], total: r.total ?? prev.total };
+}
+const nbMore = (nb) => Boolean(nb?.live && nb.total != null && nb.total > nb.neighbours.length);
+const nbMoreLabel = (nb) => T('node.nbMore', { n: nb.neighbours.length, total: nb.total });
+
+async function loadNeighbours(live, more = false) {
   const ni = S.ni;
   try {
-    const r = await api(`/api/node/neighbours?id=${encodeURIComponent(ni.id)}${live ? '&live=1' : ''}`);
+    const r = live ? await fetchNeighbours(ni.id, more ? ni.nb : null) : await api(`/api/node/neighbours?id=${encodeURIComponent(ni.id)}`);
     if (S.ni !== ni) return;
     ni.nb = r;
     if (live) ni.msg.nb = { text: r.neighbours.length ? T('node.nbGot', { n: r.neighbours.length }) : T('node.nbEmpty') };
@@ -3445,6 +3464,7 @@ async function onNodeClick(e) {
     return;
   }
   if (act === 'nb') { busy('nb', () => loadNeighbours(true)); return; }
+  if (act === 'nbmore') { busy('nb', () => loadNeighbours(true, true)); return; }
   if (act === 'reach') { loadReach(); return; }
   if (act === 'reachmap') { reachMap(ni, n); return; }
   if (act === 'fav') { await toggleFav(ni.id); if (S.view === 'node') renderNodeBody(); return; }

@@ -437,6 +437,7 @@
     "one": "{n} Nachbar empfangen ✔",
     "other": "{n} Nachbarn empfangen ✔"
   },
+  "node.nbMore": "Weitere laden ({n} von {total})",
   "node.nbEmpty": "Antwort ohne Nachbarn.",
   "node.nbNoAnswer": "Keine Antwort vom Repeater.",
   "node.nbOf": "Nachbarn von {name}",

@@ -687,3 +687,5 @@ button.geo { display: inline-block; padding: 2px 8px; margin: 1px 0; border-radi
 .adm-log .muted { color: #8a9a94; }
 .adm-cmd { font-weight: 700; color: #fff; margin-top: 4px; }
 .adm-err { color: #ff8a80; }
+.adm-nb { flex-basis: 100%; }
+.adm-nb .node-actions { margin-top: 6px; }

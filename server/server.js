@@ -1877,9 +1877,13 @@ async function handleApi(req, res, url) {
     try {
       let list;
       let ts = null;
+      let total = null;
       if (live) {
-        const r = unwrap(await mm(`${mcp()}/contacts/${pk}/neighbours?count=50&orderBy=2`, { raw: true, timeout: 60000 })) || {};
+        // Eine Antwort des Repeaters fasst höchstens 10 Einträge (Firmware); weitere Seiten über offset, total = Tabellengröße
+        const offset = Math.max(0, Math.min(1000, Number(url.searchParams.get('offset')) || 0));
+        const r = unwrap(await mm(`${mcp()}/contacts/${pk}/neighbours?count=10&offset=${offset}&orderBy=2`, { raw: true, timeout: 60000 })) || {};
         ts = Date.now();
+        total = Number.isFinite(Number(r.total)) ? Number(r.total) : null;
         list = (r.neighbours || []).map((n) => ({ key: str(n.fullPublicKey || '').toLowerCase() || null, prefix: str(n.publicKeyPrefix).toLowerCase(), name: n.name || null, snr: n.snr ?? null, secs: n.heardSecondsAgo ?? null }));
       } else {
         const items = asArray(unwrap(await mm(`${mcp()}/neighbors?node=${pk}`, { raw: true })), 'items');
@@ -1891,7 +1895,7 @@ async function handleApi(req, res, url) {
         const node = (n.key && nodeById(`mc:${n.key}`)) || (!n.key && n.prefix ? nodeForHash(n.prefix) : null);
         return { id: node?.id || (n.key ? `mc:${n.key}` : null), hash: n.prefix, name: n.name || node?.long || node?.short || null, snr: n.snr, secs: n.secs };
       }).sort((a, b) => (b.snr ?? -99) - (a.snr ?? -99));
-      return send(res, 200, { ts, neighbours: out.slice(0, 100) });
+      return send(res, 200, { ts, total, neighbours: out.slice(0, 100) });
     } catch (e) { return mmError(res, e, T); }
   }
 

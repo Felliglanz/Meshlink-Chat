@@ -437,6 +437,7 @@
     "one": "{n} neighbour received ✔",
     "other": "{n} neighbours received ✔"
   },
+  "node.nbMore": "Load more ({n} of {total})",
   "node.nbEmpty": "Answer without neighbours.",
   "node.nbNoAnswer": "No answer from the repeater.",
   "node.nbOf": "Neighbours of {name}",

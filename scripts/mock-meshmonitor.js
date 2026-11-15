@@ -337,7 +337,15 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       if (act === 'reset-path') { globalThis.cp[key] = { outPath: '', pathLen: -1 }; return J(200, { success: true }); }
       if (act === 'discover-path') { setTimeout(() => { globalThis.cp[key] = { outPath: 'b4', pathLen: 1 }; }, 2000); return J(200, { success: true, data: { suggestedTimeoutMs: 5000 } }); }
       if (act === 'ping') { await new Promise((r) => setTimeout(r, 800)); return key === RP1 ? J(200, { success: true, data: { hopHash: 'b4', rttMs: 412, snrToTarget: 8.25, snrFromTarget: 6.5 } }) : J(504, { success: false, error: 'No reply', code: 'MESHCORE_PING_TIMEOUT' }); }
-      if (act === 'neighbours') { await new Promise((r) => setTimeout(r, 1000)); return J(200, { success: true, data: { total: 2, neighbours: [{ publicKeyPrefix: 'b3f822', fullPublicKey: RP2, name: 'RPT Hafen', snr: 9.5, heardSecondsAgo: 120 }, { publicKeyPrefix: '9999', fullPublicKey: MEPK, name: 'Mesh@Home', snr: -3.25, heardSecondsAgo: 30 }] } }); }
+      if (act === 'neighbours') {
+        // Wie die Firmware: höchstens 10 Einträge je Antwort, offset blättert, total = ganze Tabelle (23).
+        // Einträge 3–23 sind die Nodes aus MOCK_NODES (mit Position nur, wenn MOCK_NODES >= 21 gesetzt ist).
+        await new Promise((r) => setTimeout(r, 1000));
+        const table = [{ publicKeyPrefix: 'b3f822', fullPublicKey: RP2, name: 'RPT Hafen', snr: 9.5, heardSecondsAgo: 120 }, { publicKeyPrefix: '9999', fullPublicKey: MEPK, name: 'Mesh@Home', snr: -3.25, heardSecondsAgo: 30 },
+          ...Array.from({ length: 21 }, (_, i) => { const k = (i.toString(16).padStart(4, '0') + 'f'.repeat(60)).slice(0, 64); return { publicKeyPrefix: k.slice(0, 8), fullPublicKey: k, name: `RPT ${i}`, snr: 8 - i * 0.75, heardSecondsAgo: 300 + i * 600 }; })];
+        const off = Number(url.searchParams.get('offset') || 0); const cnt = Math.min(10, Number(url.searchParams.get('count') || 10));
+        return J(200, { success: true, data: { total: table.length, neighbours: table.slice(off, off + cnt) } });
+      }
     }
     if (url.pathname === `${mc}/neighbors`) return J(200, { success: true, data: { items: [{ publicKey: RP1, neighborPublicKey: RP2, snr: 7.75, lastHeardSecs: 600, timestamp: Date.now() - 3600000, neighborName: 'RPT Hafen' }].filter((i) => !url.searchParams.get('node') || i.publicKey === url.searchParams.get('node')) } });
     globalThis.room ||= { in: false, posts: [{ id: 'r1', text: 'Treffen am Samstag 14 Uhr', fromName: 'Chris Mobil', receivedAt: Date.now() - 7200000 }, { id: 'r2', text: 'Bin dabei 👍', fromName: 'Joe Mobil', receivedAt: Date.now() - 3600000 }] };
