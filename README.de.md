@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.2.1` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.3.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -191,6 +191,11 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 <details>
 <summary><b>💬 Chats</b></summary>
 
+- **Chatliste:** Der Knopf ⇅ über den Kanälen sortiert sie wie im Gerät, nach neuester Nachricht, nach den meisten
+  Nachrichten (im geladenen Verlauf) oder alphabetisch. Die Wahl merkt sich jedes Gerät selbst.
+- **Kanal-Symbol (MeshCore):** **#** = Hashtag-Kanal (Schlüssel aus dem Namen, jeder mit dem Namen kann mitlesen),
+  **Schloss** = privater Kanal (eigener Schlüssel), **Globus** = Public. Der Server erkennt die Art am Schlüssel aus
+  MeshMonitor. Der Schlüssel selbst geht nie an die App.
 - **Lange drücken** (am PC: Rechtsklick) auf eine Nachricht: Reaktion, Antworten, Kopieren, DM, Details.
   **Doppeltippen**: ❤️. **Auf eine Reaktion tippen**: dieselbe Reaktion senden. Reaktionen gehen ins Mesh und lassen
   sich nicht zurücknehmen (bei MeshCore muss „Reaktionen senden“ in MeshMonitor für die Quelle erlaubt sein).

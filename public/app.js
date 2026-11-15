@@ -54,6 +54,7 @@ const S = {
   view: 'boot', conv: null, replyTo: null,
   sentIds: new Set(), pending: new Map(),
   lastRead: load('lastRead', null),
+  chSort: load('chSort', 'device'), // Reihenfolge der Kanäle (nur dieses Gerät)
   notify: load('notify', false),
   es: null, booted: false, tmpSeq: 0,
 };
@@ -464,23 +465,55 @@ function resolvePending(m) {
 
 function conversations() {
   const map = new Map();
-  for (const c of S.channels) map.set(`ch:${c.index}`, { key: `ch:${c.index}`, last: null, unread: 0 });
+  for (const c of S.channels) map.set(`ch:${c.index}`, { key: `ch:${c.index}`, last: null, unread: 0, count: 0 });
   const lr = S.lastRead || {};
   for (const m of S.msgs.values()) {
     if (m.reaction) continue;
     const k = convOf(m);
     if (k === 'dm:' || k === 'dm:null') continue;
     let c = map.get(k);
-    if (!c) map.set(k, (c = { key: k, last: null, unread: 0 }));
+    if (!c) map.set(k, (c = { key: k, last: null, unread: 0, count: 0 }));
     if (!c.last || m.ts > c.last.ts) c.last = m;
+    c.count++;
     if (!isMine(m) && !isOwnOther(m) && m.ts > (lr[k] || 0)) c.unread++;
   }
   for (const c of map.values()) if (isMuted(c.key)) { c.muted = true; c.unread = 0; }
   const all = [...map.values()];
   return {
-    channels: all.filter((c) => c.key.startsWith('ch:')).sort((a, b) => Number(a.key.slice(3)) - Number(b.key.slice(3))),
+    channels: all.filter((c) => c.key.startsWith('ch:')).sort(channelOrder()),
     dms: all.filter((c) => c.key.startsWith('dm:')).sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0)),
   };
+}
+
+// Reihenfolge der Kanäle in der Liste: eigene Wahl je Gerät (nur eine Anzeige-Einstellung im Browser)
+const CH_SORTS = ['device', 'recent', 'most', 'alpha'];
+const chSortLabel = (k) => ({ device: T('list.sortDevice'), recent: T('list.sortRecent'), most: T('list.sortMost'), alpha: T('list.sortAlpha') })[k];
+const chSort = () => (CH_SORTS.includes(S.chSort) ? S.chSort : 'device');
+function channelOrder() {
+  const idx = (c) => Number(c.key.slice(3));
+  const byIdx = (a, b) => idx(a) - idx(b);
+  const recent = (a, b) => (b.last?.ts || 0) - (a.last?.ts || 0) || byIdx(a, b);
+  const name = (c) => convTitle(c.key).replace(/^#/, '');
+  return {
+    device: byIdx,
+    recent,
+    most: (a, b) => b.count - a.count || recent(a, b),
+    alpha: (a, b) => name(a).localeCompare(name(b), LOC, { sensitivity: 'base', numeric: true }) || byIdx(a, b),
+  }[chSort()];
+}
+function openChannelSort() {
+  const cur = chSort();
+  openSheet(`
+    <div class="sheet-title">${T('list.sortTitle')}</div>
+    ${CH_SORTS.map((k) => `<button class="sheet-btn scope-opt ${k === cur ? 'active' : ''}" data-sort="${k}"><span>${esc(chSortLabel(k))}${k === 'most' ? `<small>${esc(T('list.sortMostSub'))}</small>` : ''}</span>${k === cur ? `<i>${ICON.check}</i>` : ''}</button>`).join('')}
+    <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
+    const b = e.target.closest('[data-sort]');
+    if (!b) return;
+    S.chSort = b.dataset.sort;
+    save('chSort', S.chSort);
+    closeSheet();
+    scheduleRender();
+  });
 }
 
 function markRead(key) {
@@ -549,10 +582,23 @@ function stateIcon(st) {
   if (/sent|transmit|broadcast/.test(st)) return `<span class="st" title="${esc(T('state.sent'))}">✓</span>`;
   return `<span class="st st-wait" title="${esc(T('state.pending'))}">◷</span>`;
 }
+// Art eines Kanals (MeshCore): Hashtag-Kanal (Name mit #, Schlüssel aus dem Namen), privat (eigener Schlüssel)
+// oder Public (bekannter Schlüssel). Weiß der Server es genau (kind), gilt das; sonst entscheidet der Name.
+function channelKind(idx) {
+  if (S.source?.protocol !== 'meshcore') return 'hashtag';
+  const c = S.channels.find((x) => x.index === idx);
+  if (c?.kind === 'hashtag' || c?.kind === 'private' || c?.kind === 'public') return c.kind;
+  const name = String(c?.name || '').trim();
+  if (name.startsWith('#')) return 'hashtag';
+  return /^public$/i.test(name) || (!name && idx === 0) ? 'public' : 'private';
+}
+const KIND_LABEL = () => ({ hashtag: T('channel.kindHashtag'), private: T('channel.kindPrivate'), public: T('channel.kindPublic') });
 function avatar(id, cls = '') {
-  const isCh = id.startsWith('ch:');
-  const label = isCh ? '#' : esc(shortName(id.replace(/^dm:/, '')).slice(0, cls === 'tiny' ? 3 : 4));
-  return `<div class="avatar ${cls}" style="--h:${hue(id)}">${label}</div>`;
+  if (id.startsWith('ch:')) {
+    const kind = channelKind(Number(id.slice(3)));
+    return `<div class="avatar ch-${kind} ${cls}" style="--h:${hue(id)}" title="${esc(KIND_LABEL()[kind])}">${{ hashtag: ICON.hash, private: ICON.lock, public: ICON.globe }[kind]}</div>`;
+  }
+  return `<div class="avatar ${cls}" style="--h:${hue(id)}">${esc(shortName(id.replace(/^dm:/, '')).slice(0, cls === 'tiny' ? 3 : 4))}</div>`;
 }
 
 const ICON = {
@@ -579,6 +625,9 @@ const ICON = {
   home: '<svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg>',
   megaphone: '<svg viewBox="0 0 24 24"><path d="M4 10v4h3l8 4V6l-8 4z"/><path d="M18 9.5a3.5 3.5 0 0 1 0 5M8 14.5V19"/></svg>',
   globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.2 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.2-3.6-8.5s1.2-6.2 3.6-8.5z"/></svg>',
+  sort: '<svg viewBox="0 0 24 24"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M17 20V4M13.5 7.5L17 4l3.5 3.5"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><circle cx="12" cy="15.5" r="1.3" class="fill"/></svg>',
+  hash: '<svg viewBox="0 0 24 24"><path d="M9.5 4L7.5 20M16.5 4l-2 16M4.5 9h15.5M4 15h15.5"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" class="fill"/></svg>',
 };
 
@@ -657,6 +706,7 @@ function renderList(app = $('#app')) {
     $('#search-btn').onclick = () => go('search');
     $('#new-dm').onclick = () => go('contacts');
     $('#convs').onclick = (e) => {
+      if (e.target.closest('#ch-sort')) { openChannelSort(); return; }
       const it = e.target.closest('[data-conv]');
       if (it) go('chat', it.dataset.conv, isWide() && S.view !== 'list');
     };
@@ -681,7 +731,7 @@ function renderList(app = $('#app')) {
   };
   $('#convs').innerHTML = `
     ${S.error && S.sse ? `<div class="banner">${esc(S.error)}</div>` : ''}
-    <div class="section">${T('list.channels')}</div>
+    <div class="section section-row"><span>${T('list.channels')}</span>${channels.length > 1 ? `<button class="sort-btn" id="ch-sort" aria-label="${esc(T('list.sortTitle'))}" title="${esc(T('list.sortTitle'))}">${ICON.sort}<span>${esc(chSortLabel(chSort()))}</span></button>` : ''}</div>
     ${channels.map(item).join('') || `<div class="empty">${T('list.noChannels')}</div>`}
     <div class="section">${T('list.dms')}</div>
     ${dms.map(item).join('') || `<div class="empty">${T('list.noDms')}</div>`}`;

@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.2.1` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.3.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -192,6 +192,11 @@ if something is broken.
 <details>
 <summary><b>💬 Chats</b></summary>
 
+- **Chat list:** the ⇅ button above the channels sorts them as on the device, by newest message, by most messages
+  (in the loaded history) or alphabetically. Each device remembers its own choice.
+- **Channel icon (MeshCore):** **#** = hashtag channel (key derived from the name, anyone with the name can read along),
+  **lock** = private channel (own key), **globe** = Public. The server tells them apart by the key from MeshMonitor.
+  The key itself never reaches the app.
 - **Long press** (desktop: right click) on a message: reaction, reply, copy, DM, details.
   **Double tap**: ❤️. **Tap a reaction**: send the same reaction. Reactions go into the mesh and cannot be taken
   back (with MeshCore, "send reactions" must be allowed for the source in MeshMonitor).

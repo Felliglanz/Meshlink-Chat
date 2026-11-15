@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -121,11 +121,25 @@ function normNode(n) {
   };
 }
 
+// MeshCore-Kanalart aus dem Schlüssel (psk, 16 Byte): Public = bekannter Schlüssel, Hashtag = erste 16 Byte von
+// sha256("#name"), sonst privat. Der Schlüssel selbst verlässt den Server nie, die App bekommt nur die Art.
+const PUBLIC_PSK = '8b3387e9c5cdea6ac9e5edbaa115cd72';
+function channelKind(c, name) {
+  const v = str(c.psk ?? c.secret ?? c.key).trim();
+  let hex = /^[0-9a-f]{32}$/i.test(v) ? v.toLowerCase() : null;
+  if (!hex && v) { try { const b = Buffer.from(v, 'base64'); if (b.length === 16) hex = b.toString('hex'); } catch { /* kein Schlüssel */ } }
+  if (!hex) return null; // unbekannt -> die App entscheidet am Namen
+  if (hex === PUBLIC_PSK) return 'public';
+  const tag = name.startsWith('#') ? name : `#${name}`;
+  return name && crypto.createHash('sha256').update(tag).digest('hex').slice(0, 32) === hex ? 'hashtag' : 'private';
+}
 function normChannel(c, i) {
   const index = Number(c.index ?? c.channelIndex ?? c.slot ?? c.id ?? i);
   const role = c.role;
   if (role === 0 || role === 'DISABLED' || c.enabled === false) return null;
-  return { index, name: str(c.displayName ?? c.name), scope: c.scope || null }; // ohne Namen: die App zeigt „Primär“/„Kanal n“ in ihrer Sprache
+  const name = str(c.displayName ?? c.name);
+  const kind = state.source?.protocol === 'meshcore' || str(c.protocol).toLowerCase() === 'meshcore' ? channelKind(c, name) : null;
+  return { index, name, scope: c.scope || null, kind }; // ohne Namen: die App zeigt „Primär“/„Kanal n“ in ihrer Sprache
 }
 
 function deliveryState(m) {

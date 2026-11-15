@@ -162,7 +162,12 @@ if (process.env.MOCK_PROTO === 'meshcore') {
     globalThis.mockCounters = { recv, sent, up, at: now };
   }
   channels.length = 0;
-  channels.push({ id: 0, name: 'Public', displayName: 'Public', scope: 'de' }, { id: 4, name: '#test', displayName: '#test', scope: 'de' }, { id: 10, name: 'clubhaus', displayName: 'clubhaus', scope: 'de-nord' });
+  // psk wie MeshMonitor (Hex): Public = bekannter Schlüssel, #test = aus dem Namen, clubhaus und #geheim = eigener Schlüssel
+  const tagPsk = (n) => crypto.createHash('sha256').update(n).digest('hex').slice(0, 32);
+  channels.push({ id: 0, name: 'Public', displayName: 'Public', scope: 'de', psk: '8b3387e9c5cdea6ac9e5edbaa115cd72', protocol: 'meshcore' },
+    { id: 4, name: '#test', displayName: '#test', scope: 'de', psk: tagPsk('#test'), protocol: 'meshcore' },
+    { id: 10, name: 'clubhaus', displayName: 'clubhaus', scope: 'de-nord', psk: 'a1b2c3d4e5f60718293a4b5c6d7e8f90', protocol: 'meshcore' },
+    { id: 11, name: '#geheim', displayName: '#geheim', scope: 'de', psk: Buffer.from('0f1e2d3c4b5a69788796a5b4c3d2e1f0', 'hex').toString('base64'), protocol: 'meshcore' });
   messages = [];
   let n = 0;
   const mk = (o) => { const t = Date.now() - 600000 + (n++) * 20000; messages.push({ protocol: 'meshcore', id: `${t}-x${n}`, fromNodeId: null, fromNodeNum: null, fromPublicKey: null, fromName: null, toNodeId: '!ffffffff', toPublicKey: null, text: '', channel: 0, messageType: 'text', timestamp: t, rxSnr: 10, rxRssi: -80, hopCount: 3, routePath: null, delivered: false, deliveredAt: null, createdAt: t, ...o }); };
