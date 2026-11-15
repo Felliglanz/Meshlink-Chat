@@ -3583,6 +3583,8 @@ function drawerGroup(key, title, force, html, hint) {
   return `<button class="drawer-section drawer-toggle" data-group="${key}" aria-expanded="${open}"><span>${esc(title)}${hint ? ` <small>${esc(hint)}</small>` : ''}</span>${ICON.chevron}</button>
     <div class="drawer-group ${open ? '' : 'collapsed'}">${html}</div>`;
 }
+// Projektseite: nur ein Link, den der Browser auf Antippen öffnet – die App selbst ruft GitHub nie ab
+const REPO_URL = 'https://github.com/Felliglanz/Meshlink-Chat';
 function openDrawer() {
   const root = $('#drawer-root');
   const notifOn = S.notify && 'Notification' in window && Notification.permission === 'granted';
@@ -3618,7 +3620,7 @@ function openDrawer() {
       <button class="drawer-item" data-act="lang">${ICON.globe}<span>${T('drawer.language', { name: esc(langName(LANG)) })}</span></button>`)}
       <div class="drawer-spacer"></div>
       <button class="drawer-item" data-act="reload">${ICON.refresh}<span>${T('drawer.reload')}</span></button>
-      <div class="drawer-version">MeshLink Chat ${esc(S.version || '')}</div>
+      <a class="drawer-version" href="${REPO_URL}" target="_blank" rel="noopener noreferrer" title="${esc(T('drawer.repo'))}">MeshLink Chat ${esc(S.version || '')} ↗</a>
       <button class="drawer-item danger" data-act="logout">${ICON.logout}<span>${T('drawer.logout')}</span></button>
     </nav>`;
   root.classList.add('open');

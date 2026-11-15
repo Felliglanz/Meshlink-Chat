@@ -210,6 +210,7 @@
   "drawer.language": "Language: {name}",
   "drawer.logout": "Log out",
   "drawer.reload": "Reload",
+  "drawer.repo": "Open the project page on GitHub",
   "dur.dh": "{d} d {h} h",
   "emoji.smileys": "Smileys",
   "emoji.gestures": "Gestures",
