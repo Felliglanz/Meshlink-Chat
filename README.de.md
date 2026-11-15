@@ -69,6 +69,7 @@ sind eine einzelne Datei, siehe [Weitere Sprache hinzufügen](#weitere-sprache-h
 <p align="center">
   <img src="docs/screenshots/reach.png" width="240" alt="Reach eines Repeaters">
   <img src="docs/screenshots/reach-map.png" width="240" alt="Reach auf der Karte">
+  <img src="docs/screenshots/admin.png" width="240" alt="Repeater-Verwaltung: Status">
 </p>
 
 <sub>Alle Screenshots zeigen erfundene Testdaten.</sub>

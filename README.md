@@ -69,6 +69,7 @@ see [Adding a language](#adding-a-language).
 <p align="center">
   <img src="docs/screenshots/reach.png" width="240" alt="Reach of a repeater">
   <img src="docs/screenshots/reach-map.png" width="240" alt="Reach on the map">
+  <img src="docs/screenshots/admin.png" width="240" alt="Repeater admin: status">
 </p>
 
 <sub>All screenshots show made-up test data (German interface).</sub>
