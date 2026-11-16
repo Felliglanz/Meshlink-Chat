@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.4.1` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.4.2` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -159,6 +159,28 @@ journalctl -u meshlink-chat -f                                # Log live ansehen
 Offene Apps laden sich nach einem Update von selbst neu. Wenn du nur die Konfiguration ändern willst:
 `nano /opt/meshlink-chat/.env` und danach `/opt/meshlink-chat/install.sh --update`. Zurück zu einer älteren Version:
 `git checkout <tag oder commit>` und dann `./install.sh --update`.
+
+<details>
+<summary><b>Alle Einstellungen in der <code>.env</code></b></summary>
+
+| Einstellung | Standard | Bedeutung |
+|---|---|---|
+| `MM_URL`, `MM_TOKEN` | – | Adresse von MeshMonitor und API-Token |
+| `APP_PASSWORD` | – | Login-Passwort der App (mind. 8 Zeichen) |
+| `SESSION_SECRET` | zufällig | Schlüssel für Sitzungen und Push; ändern = alle Geräte abgemeldet |
+| `SESSION_DAYS` | `30` | so lange bleibt ein Gerät angemeldet |
+| `BIND_ADDR`, `HOST_PORT` | `0.0.0.0`, `8090` | Adresse und Port, auf denen MeshLink Chat lauscht |
+| `MM_SOURCE` | primäre Quelle | feste Quelle (sourceId) in MeshMonitor |
+| `MY_NODE_ID` | automatisch | eigene Node-ID, falls die Erkennung nicht klappt (`!a1b2c3d4` oder `mc:<pubkey>`) |
+| `MY_NAME` | automatisch | eigener Absendername in Kanälen, falls er (noch) nicht aus gesendeten Nachrichten gelernt ist |
+| `REMOTE_ADMIN` | `0` | `1` = Repeater-Verwaltung an (siehe unten) |
+| `POLL_MS`, `IDLE_POLL_MS` | `3000`, `15000` | Abfrage-Intervall in ms (App offen / keine App offen) |
+| `HISTORY_LIMIT` | `500` | so viele Nachrichten holt der Server je vollständigem Abruf (im Speicher höchstens das Dreifache) |
+| `PUSH_CONTACT` | Platzhalter | Kontakt für Push-Dienste (`mailto:…` oder `https://…`), nur nötig, wenn ein Dienst ihn verlangt |
+
+Nach jeder Änderung: `/opt/meshlink-chat/install.sh --update`.
+
+</details>
 
 `uninstall.sh` entfernt den Dienst, `/opt/meshlink-chat` und die Push-Abos und prüft am Ende, dass nichts übrig ist.
 Den Clone-Ordner und außerhalb räumst du selbst auf: den HTTPS-Eintrag, den API-Token in MeshMonitor und das App-Symbol
@@ -333,6 +355,9 @@ Antworten von MeshMonitor.
 - Der Dienst läuft ohne Rechte in einer systemd-Sandbox und darf nur in sein Zustandsverzeichnis schreiben.
 - Content-Security-Policy erlaubt nur die eigenen Dateien und die Kachel-Anbieter. Live-Verbindungen sind auf 50 begrenzt.
 - Repeater-Verwaltung ist ab Werk aus (`REMOTE_ADMIN`). Admin-Passwörter speichert MeshLink Chat nie.
+- Eigene Nachrichten erkennt die App an MeshMonitors Kennung bzw. der eigenen Node-ID, nicht am Namen: Wer im Kanal unter
+  deinem Namen schreibt, erscheint als fremde Nachricht. Ein eigenes zweites Gerät mit gleichem Namen trägst du unter
+  „Meine weiteren Nodes“ ein.
 - Bitte **nicht direkt ins Internet** stellen, sondern nur hinter HTTPS-Proxy oder Tunnel, am besten mit Zugangsschutz.
 
 ## Weitere Sprache hinzufügen

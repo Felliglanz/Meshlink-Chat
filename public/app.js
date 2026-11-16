@@ -53,7 +53,8 @@ const S = {
   connected: false, error: null, sse: false,
   view: 'boot', conv: null, replyTo: null,
   sentIds: new Set(), pending: new Map(),
-  lastRead: load('lastRead', null),
+  lastRead: null, // Gelesen-Stand der aktuellen Quelle: {chat: ms}
+  readBy: load('readBy', null), // je Quelle: {quelle: {chat: ms}} – Kanalnummern gibt es in jeder Quelle
   chSort: load('chSort', 'device'), // Reihenfolge der Kanäle (nur dieses Gerät)
   notify: load('notify', false),
   es: null, booted: false, tmpSeq: 0,
@@ -76,7 +77,8 @@ async function api(path, { method = 'GET', body } = {}) {
 
 // ------------------------------------------------------------------ Datenmodell
 
-const isMine = (m) => m.mine === true || (S.me && m.from === S.me) || S.sentIds.has(m.id) || m.local === true || (m.name && S.myNames.has(m.name));
+// Nicht am Namen allein: Kanal-Absender sind nur Text, jeder könnte unter meinem Namen schreiben (eigenes zweites Gerät -> „Eigene Nodes“)
+const isMine = (m) => m.mine === true || (S.me && m.from === S.me) || S.sentIds.has(m.id) || m.local === true;
 // Nachricht von einem meiner anderen Nodes (z. B. zweite MeshMonitor-Quelle oder Handy-Companion)
 const isOwnOther = (m) => !isMine(m) && (m.ownOther === true || (m.name && (S.otherNames.has(m.name) || S.extraOwn.has(m.name))));
 const convOf = (m) => (m.dm ? `dm:${isMine(m) ? m.to : m.from}` : `ch:${m.channel ?? 0}`);
@@ -129,6 +131,8 @@ function renderText(text) {
 const mentionsMe = (m) => { const me = myName(); return Boolean(me) && m.text.includes(`@[${me}]`); };
 const ECHO_WINDOW_MS = 60000;
 const relayLabel = (r) => r.name || `#${r.hash}`;
+// Ab wann Echos einer eigenen Nachricht kommen können: Senden bzw. das letzte Resend (der Server sucht dann wieder 1 Min.)
+const echoSince = (m) => Math.max(m.ts, S.resends?.get(m.id)?.at || 0);
 
 // ------------------------------------------------------------------ Anzeige unter der Nachricht: Scope, Weg, Repeater-Echos
 // Scope/Region, mit der eine Nachricht gesendet wurde: Name, sonst Kurzcode; 🌐 = ohne Scope
@@ -196,7 +200,9 @@ async function resend(id) {
   try {
     const res = await api('/api/resend', { method: 'POST', body: { id } });
     r.n = res.resendCount ?? r.n + 1;
+    r.at = Date.now();
     toast(T('resend.done', { n: r.n, max: RESEND_MAX }));
+    setTimeout(scheduleRender, ECHO_WINDOW_MS + 500); // „…“ wieder zur Zahl werden lassen
   } catch (e) {
     const why = { ALREADY_HEARD: T('resend.whyHeard'), ALREADY_DELIVERED: T('resend.whyDelivered'), RESEND_TOO_OLD: T('resend.whyOld'), MESSAGE_NOT_FOUND: T('resend.whyUnknown'), NOT_OWN_MESSAGE: T('resend.whyNotOwn') }[e.code];
     toast(e.status === 403 ? T('common.noSendPerm') : e.code === 'TX_DISABLED' ? T('common.txDisabled') : T('resend.failed', { why: why || e.message }));
@@ -219,7 +225,7 @@ function heardBadge(m) {
     const k = o.hops.length;
     return `<button class="heard route" data-heard="${esc(m.id)}" title="${esc(T('heard.outTitle'))}" aria-expanded="${S.expanded.has(m.id)}">↪ ${k ? T('common.hops', { n: k }) : o.flood ? 'Flood' : T('common.direct')}</button>`;
   }
-  const waiting = !n && Date.now() - m.ts < ECHO_WINDOW_MS;
+  const waiting = !n && Date.now() - echoSince(m) < ECHO_WINDOW_MS;
   const title = n ? T('heard.byTitle', { n }) : waiting ? T('heard.waiting') : T('heard.none');
   return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">📡 ${waiting ? '…' : n}</button>`;
 }
@@ -229,7 +235,7 @@ function heardList(m) {
   const list = m.heard || [];
   const out = m.dm ? outRouteList(m) : '';
   if (!list.length && out) return out;
-  if (!list.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - m.ts < ECHO_WINDOW_MS ? T('heard.waiting') : T('heard.noneLong')}</div></div>`;
+  if (!list.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - echoSince(m) < ECHO_WINDOW_MS ? T('heard.waiting') : T('heard.noneLong')}</div></div>`;
   return `${out}<div class="heard-list">
     <div class="heard-head">${T('heard.via', { n: list.length })}</div>
     ${list.map((r) => `<div class="heard-row"><span class="heard-hop" title="${esc(T('heard.posTitle'))}">${r.hops}</span><span class="heard-name">${esc(relayLabel(r))}${r.name ? `<small>${esc(r.hash)}</small>` : ''}</span><span class="heard-snr">${r.snr != null ? `SNR ${esc(r.snr)}` : r.hops === 1 ? T('common.direct') : ''}</span></div>`).join('')}
@@ -411,7 +417,10 @@ const canReactTo = (m) => Boolean(m && !m.reaction && !m.id.startsWith('tmp-') &
 // ------------------------------------------------------------------ Daten vom Server übernehmen
 function applyMeta(meta) {
   checkVersion(meta.appVersion);
-  if (meta.source) S.source = meta.source;
+  if (meta.source) {
+    if (S.source?.id !== meta.source.id || !S.readBy) useReadFor(meta.source.id);
+    S.source = meta.source;
+  }
   if (meta.me) S.me = meta.me;
   if (meta.myNames) S.myNames = new Set(meta.myNames);
   if (meta.otherNames) S.otherNames = new Set(meta.otherNames);
@@ -517,6 +526,33 @@ function openChannelSort() {
   });
 }
 
+// Gelesen-Stand der Quelle wählen. Der alte, gemeinsame Stand (vor 1.4.2) geht einmalig an die erste Quelle.
+function useReadFor(src) {
+  if (!S.readBy) {
+    S.readBy = {};
+    const old = load('lastRead', null);
+    if (old) S.readBy[src] = old;
+    save('readBy', S.readBy);
+    try { localStorage.removeItem('mc.lastRead'); } catch { /* egal */ }
+  }
+  S.readFresh = !S.readBy[src]; // Quelle zum ersten Mal auf diesem Gerät -> Verlauf gilt als gelesen (siehe readHistoryIfFresh)
+  S.lastRead = S.readBy[src] || null;
+}
+function saveRead() {
+  if (!S.source) return;
+  S.readBy = { ...(S.readBy || {}), [S.source.id]: S.lastRead || {} };
+  save('readBy', S.readBy);
+}
+// Erster Start bzw. neue Quelle: Verlauf nicht als ungelesen markieren (außer ein anderes Gerät weiß es besser)
+function readHistoryIfFresh() {
+  if (!S.readFresh) return;
+  S.readFresh = false;
+  const lr = { ...(S.lastRead || {}) };
+  for (const m of S.msgs.values()) { const k = convOf(m); if (!(k in lr)) lr[k] = Date.now(); }
+  S.lastRead = lr;
+  saveRead();
+}
+
 function markRead(key) {
   if (!key || document.hidden) return;
   const old = (S.lastRead || {})[key] || 0;
@@ -529,7 +565,7 @@ function markRead(key) {
   }
   const ts = Math.max(max, Date.now());
   S.lastRead = { ...(S.lastRead || {}), [key]: ts };
-  save('lastRead', S.lastRead);
+  saveRead();
   if (had) shareRead({ [key]: ts }); // nur wenn wirklich etwas Neues gelesen wurde
   updateBadge();
 }
@@ -540,7 +576,7 @@ function mergeRead(read) {
   let changed = false;
   for (const [k, v] of Object.entries(read || {})) if (v > (lr[k] || 0)) { lr[k] = v; changed = true; }
   if (!changed) return;
-  S.lastRead = lr; save('lastRead', lr);
+  S.lastRead = lr; saveRead();
   scheduleRender();
 }
 
@@ -1373,7 +1409,7 @@ function drawStats() {
   const hopHist = pk ? pk.hopHist.map((n, h) => ({ label: h === 0 ? T('stats.hop0') : h === 8 ? T('stats.hop8') : T('common.hops', { n: h }), n })).filter((r) => r.n) : [];
   const warn = [
     m.truncated ? T('stats.warnTrunc') : '',
-    m.skipped?.length ? T('stats.warnSkipped', { list: m.skipped.join(', ') }) : '',
+    m.skipped?.length || m.dmSkipped ? T('stats.warnSkipped', { list: [...(m.skipped || []), ...(m.dmSkipped ? [T('list.dms')] : [])].join(', ') }) : '',
     pk?.truncated ? T('stats.warnPkTrunc', { n: nf(100000) }) : '',
   ].filter(Boolean);
   const covNote = p && cov ? `<div class="note">${covGone
@@ -1422,7 +1458,7 @@ function drawStats() {
         ${m.hashBytes.map((h) => `<div><small>${T('route.hashBytes', { n: h.bytes })}</small><b>${nf(h.n)}</b></div>`).join('')}
       </div>
       ${m.emojis.length ? `<div class="stat-chips"><small>${T('stats.reactions')}:</small>${m.emojis.map((x) => `<span>${esc(x.e)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
-      ${m.scopes.length ? `<div class="stat-chips"><small>Scopes${m.scopesPartial ? ` ${T('stats.asKnown')}` : ''}:</small>${m.scopes.map((x) => `<span>${esc(x.label)} ${nf(x.n)}</span>`).join('')}</div>` : ''}
+      ${m.scopes.length ? `<div class="stat-chips"><small>Scopes${m.scopesPartial ? ` ${T('stats.asKnown')}` : ''}:</small>${m.scopes.map((x) => `<span>${esc(x.label || T('scope.none'))} ${nf(x.n)}</span>`).join('')}</div>` : ''}
       ${m.reactions == null ? `<div class="hint">${T('stats.reactNote')}</div>` : ''}
     </section>
     ${covNote}
@@ -1789,11 +1825,11 @@ function pkDecode(raw) {
       }
     }
   } else if (type === 3) {
-    add(4, 'ACK-Code', '', 'ack');
-    fields[fields.length - 1].value = T('pk.ackNote');
+    add(4, 'ACK-Code', T('pk.ackNote'), 'ack');
   } else if (type === 5 || type === 6) {
-    add(1, T('pk.fChHash'), '', 'dst');
-    fields[fields.length - 1].value = `${pkHex(b.subarray(o - 1, o))} – ${T('pk.chHashNote')}`;
+    // Wert nur setzen, wenn das Feld wirklich angelegt wurde (abgeschnittenes Paket: sonst träfe es das vorige Feld)
+    const ch = add(1, T('pk.fChHash'), '', 'dst');
+    if (ch) fields[fields.length - 1].value = `${pkHex(ch)} – ${T('pk.chHashNote')}`;
     add(2, 'MAC', T('pk.macNote'), 'mac');
     add(rest(), T('pk.fEnc'), T('pk.nBytes', { n: rest() }), 'enc');
   } else if (type === 0 || type === 1 || type === 2 || type === 8) {
@@ -2538,7 +2574,7 @@ function drawFocus() {
   pts.forEach((p, i) => {
     if (!p.n) return;
     L.marker([p.n.lat, p.n.lon], { icon: L.divIcon({ className: 'focus-pin', html: `<span>${p.me ? '•' : esc(p.tag ?? i + (f.numberFrom ?? 0))}</span>`, iconSize: [22, 22] }) })
-      .bindTooltip(esc(p.label || p.n.long || p.n.short || ''), { direction: 'top', offset: [0, -10] }).addTo(S.focusLayer);
+      .bindTooltip(esc(p.label || (p.me ? T('common.you') : '') || p.n.long || p.n.short || ''), { direction: 'top', offset: [0, -10] }).addTo(S.focusLayer);
   });
   bar.classList.remove('hidden');
   const missing = pts.length - known.length;
@@ -3223,6 +3259,9 @@ async function onAdminClick(e) {
     const v = String(a.draft.guest || '');
     if (v.length > 15 || /\s/.test(v)) { a.out['t:guest'] = { err: true, text: T('adm.badValue') }; renderAdminBody(); return; }
     await admCli(`set guest.password ${v}`, { key: 't:guest' });
+    // Leer = Gastpasswort gelöscht: Gäste kommen ohne Passwort an den Status (so lassen es viele bewusst)
+    const o = a.out['t:guest'];
+    if (!v && o && !o.err) a.out['t:guest'] = { text: `${T('adm.guestCleared')} (${o.text})` };
     a.draft.guest = ''; renderAdminBody();
     return;
   }
@@ -3671,7 +3710,7 @@ function openDrawer() {
       const lr = { ...(S.lastRead || {}) };
       const { channels, dms } = conversations();
       for (const c of [...channels, ...dms]) lr[c.key] = Date.now();
-      S.lastRead = lr; save('lastRead', lr); shareRead(lr); scheduleRender();
+      S.lastRead = lr; saveRead(); shareRead(lr); scheduleRender();
     } else if (act === 'logout') {
       await dropPushSubscription(); // abgemeldetes Gerät bekommt keine Nachrichten-Vorschau mehr
       await api('/api/logout', { method: 'POST' }).catch(() => {});
@@ -3717,6 +3756,7 @@ async function resetData() {
   S.msgs.clear(); S.byPacket.clear(); S.names.clear(); S.expanded.clear(); S.pending.clear();
   S.myNames = new Set(); S.otherNames = new Set(); S.me = '';
   await resync();
+  readHistoryIfFresh(); // neue Quelle auf diesem Gerät
   if (S.view === 'chat') go('list');
   else { $('#app').innerHTML = ''; render(); }
 }
@@ -3999,7 +4039,8 @@ function openCustomEmoji(id) {
   setTimeout(() => inp.focus(), 50);
   $('#ce').onsubmit = (e) => {
     e.preventDefault();
-    const v = [...new Intl.Segmenter().segment(inp.value.trim())][0]?.segment;
+    const raw = inp.value.trim();
+    const v = typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter().segment(raw)][0]?.segment : [...raw][0];
     closeSheet();
     if (v) sendReaction(id, v);
   };
@@ -4175,7 +4216,6 @@ function connectEvents() {
 }
 
 async function boot() {
-  const firstStart = S.lastRead == null;
   try {
     await resync();
   } catch (e) {
@@ -4183,13 +4223,7 @@ async function boot() {
     return;
   }
   clearTimeout(offlineTimer);
-  if (firstStart) {
-    // Erster Start auf diesem Gerät: Verlauf nicht als ungelesen markieren (außer ein anderes Gerät weiß es besser)
-    const lr = { ...(S.lastRead || {}) };
-    for (const m of S.msgs.values()) { const k = convOf(m); if (!(k in lr)) lr[k] = Date.now(); }
-    S.lastRead = lr;
-    save('lastRead', lr);
-  }
+  readHistoryIfFresh();
   S.booted = true;
   connectEvents();
   ensurePush();

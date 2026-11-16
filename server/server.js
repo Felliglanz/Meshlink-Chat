@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -377,7 +377,7 @@ async function refreshMeta() {
   }
   for (const n of state.myNames) state.otherNames.delete(n);
   state.lastMeta = Date.now();
-  const sig = crypto.createHash('sha1').update(JSON.stringify([state.me, state.mmVersion, posOf(nodeById(state.me)), state.channels, [...state.otherNames], state.nodes.map((n) => [n.id, n.long, n.short, n.fav])])).digest('hex');
+  const sig = crypto.createHash('sha1').update(JSON.stringify([state.me, state.mmVersion, posOf(nodeById(state.me)), state.channels, state.sources, msgCaps(), [...state.myNames], [...state.otherNames], state.nodes.map((n) => [n.id, n.long, n.short, n.fav])])).digest('hex');
   if (sig !== state.nodesSig) {
     state.nodesSig = sig;
     broadcast('meta', metaPayload());
@@ -396,7 +396,9 @@ function buildMsg(raw) {
   if (!m.id) return null;
   m.from = canonId(m.from);
   if (m.to) m.to = canonId(m.to);
-  m.mine = Boolean((state.me && m.from === state.me) || /^sent-/.test(m.id) || (m.name && state.myNames.has(m.name)));
+  // Eigene Nachricht nur an der Kennung (sent-…) bzw. der eigenen Node-ID – NICHT am Namen: Kanal-Absender sind nur Text,
+  // jeder könnte unter meinem Namen schreiben. Gleicher Name von einem anderen eigenen Gerät: „Eigene Nodes“ in der App.
+  m.mine = Boolean((state.me && m.from === state.me) || /^sent-/.test(m.id));
   m.ownOther = !m.mine && Boolean(m.name && state.otherNames.has(m.name));
   m.heard = m.dm ? state.dmHeard.get(m.id) || [] : heardFor(m.id);
   m.route = routeOf(m);
@@ -565,7 +567,7 @@ async function fetchDmRoute(id, pk, src) {
 // Nur im Speicher, je Auftrag Ergebnis oder Fehler; nach 5 Min. vergessen. Höchstens 20 gleichzeitig.
 const ADMIN_DANGER = /\b(reboot|erase|clkreboot|factory|poweroff|shutdown)\b(?!\.)|\bset\s+prv\.key\b/i; // wie MeshMonitor
 const adminJobs = new Map();
-function adminJob(fn) {
+function adminJob(fn, T = mmErrT) {
   const now = Date.now();
   for (const [k, j] of adminJobs) if (now - j.at > 5 * 60000) adminJobs.delete(k);
   if ([...adminJobs.values()].filter((j) => j.state === 'run').length >= 20) return null;
@@ -575,12 +577,14 @@ function adminJob(fn) {
   fn().then((result) => Object.assign(job, { state: 'done', result }))
     .catch((e) => {
       console.error('[admin]', e.status || '', e.code || '', e.message);
-      Object.assign(job, { state: 'error', error: e.status === 401 ? mmErrT('srv.tokenRejected') : e.message, code: e.code || (e.status === 403 ? 'FORBIDDEN' : e.status === 504 ? 'CLI_TIMEOUT' : null) });
+      // Eigene Zeitgrenze abgelaufen (AbortSignal) = wie ein Timeout von MeshMonitor: keine Antwort vom Repeater
+      const timeout = e.status === 504 || e.name === 'TimeoutError' || e.name === 'AbortError';
+      Object.assign(job, { state: 'error', error: e.status === 401 ? T('srv.tokenRejected') : timeout && !e.code ? T('adm.timeout') : e.message, code: e.code || (e.status === 403 ? 'FORBIDDEN' : timeout ? 'CLI_TIMEOUT' : null) });
     });
   return id;
 }
 function startAdminJob(res, T, fn) {
-  const job = adminJob(fn);
+  const job = adminJob(fn, T);
   return job ? send(res, 202, { job }) : send(res, 429, { error: T('srv.adminBusy') });
 }
 // Status eines Repeaters (MeshMonitor admin/status) in dieselben Namen wie die Status-Telemetrie
@@ -836,7 +840,7 @@ function addPacket(a, p, t, starts, me) {
   a.bytes += Number(p.payload_size) || 0;
   a.perBucket[bucketOf(starts, t)]++;
   if (a.oldest == null || t < a.oldest) a.oldest = t;
-  const type = str(p.payload_type_name) || (p.payload_type != null ? `Typ ${p.payload_type}` : 'unbekannt');
+  const type = str(p.payload_type_name) || (p.payload_type != null ? `#${p.payload_type}` : '?');
   bump(a.types, type);
   if (p.route_type_name) bump(a.routes, str(p.route_type_name));
   const path = Array.isArray(p.path_hops) ? p.path_hops.map((x) => str(x).toLowerCase()).filter(Boolean) : [];
@@ -956,7 +960,7 @@ function addMsg(g, m, starts, me) {
   if (m.scope) g.scopeKnown++;
   if (m.scope?.name) bump(g.scopes, `🔒 ${m.scope.name}`);
   else if (m.scope?.code > 0) bump(g.scopes, `🔒 #${m.scope.code.toString(16)}`);
-  else if (m.scope?.code === 0 && !m.dm) bump(g.scopes, '🌐 ohne Scope');
+  else if (m.scope?.code === 0 && !m.dm) bump(g.scopes, ''); // '' = ohne Scope (Text macht die App in ihrer Sprache)
   if (m.mine) { g.mine++; return; }
   g.received++;
   if (m.ownOther) return;
@@ -967,7 +971,7 @@ function addMsg(g, m, starts, me) {
   if (hops != null && Number.isFinite(Number(hops))) { g.hopSum += Number(hops); g.hopN++; if (Number(hops) === 0) g.direct++; }
   if (m.route?.bytes) bump(g.hashBytes, m.route.bytes);
   if (m.route?.hops.length && (!g.longest || m.route.hops.length > g.longest.hops)) {
-    g.longest = { name: who, ts: m.ts, hops: m.route.hops.length, path: m.route.hops.map((h) => h.name || `#${h.hash}`), points: [m.dm ? { id: m.from, label: who, tag: '✉' } : { name: m.name, label: who, tag: '✉' }, ...m.route.hops.map((h) => ({ hash: h.hash, label: h.name || `#${h.hash}` })), { me: true, label: 'Du' }] };
+    g.longest = { name: who, ts: m.ts, hops: m.route.hops.length, path: m.route.hops.map((h) => h.name || `#${h.hash}`), points: [m.dm ? { id: m.from, label: who, tag: '✉' } : { name: m.name, label: who, tag: '✉' }, ...m.route.hops.map((h) => ({ hash: h.hash, label: h.name || `#${h.hash}` })), { me: true }] };
   }
   if (!g.longText || m.text.length > g.longText.len) g.longText = { name: who, len: m.text.length, bytes: Buffer.byteLength(m.text) };
   // Weitester Absender: Luftlinie zwischen meinem Node und dem Absender (wenn beide eine Position haben)
@@ -1180,6 +1184,7 @@ async function messageStats(from, to, starts) {
   let reactionsKnown = false;
   let paged = false;
   let skipped = [];
+  let dmSkipped = false;
   if (state.source.protocol === 'meshcore' && state.channels.length) {
     try {
       skipped = await eachReadableChannel((c) => channelMessagesInto(g, c.index, from, to, starts, me));
@@ -1189,7 +1194,7 @@ async function messageStats(from, to, starts) {
         const dms = asArray(await mm(`${sp()}/messages?channel=-1&limit=20000&since=${sinceQ}`, { timeout: 60000 }), 'messages');
         if (dms.length >= 20000) g.truncated = true;
         for (const r of dms) { const m = buildMsg(r); if (m && m.ts >= from && m.ts < to) addMsg(g, m, starts, me); }
-      } catch (e) { if (e.status === 403) skipped.push('Direktnachrichten'); else throw e; }
+      } catch (e) { if (e.status === 403) dmSkipped = true; else throw e; }
       paged = true;
       reactionsKnown = true;
     } catch (e) {
@@ -1197,6 +1202,7 @@ async function messageStats(from, to, starts) {
       console.error('[stats] Kanal-Endpunkt nicht nutzbar, nehme v1:', e.status || '', e.message);
       g = newMsgAgg(starts);
       skipped = [];
+      dmSkipped = false;
     }
   }
   if (!paged) {
@@ -1214,7 +1220,7 @@ async function messageStats(from, to, starts) {
     const loadedFrom = Math.min(...[...state.msgs.values()].map((e) => e.msg.ts));
     reactionsKnown = Number.isFinite(loadedFrom) && loadedFrom <= from;
   }
-  const out = { ...finishMsgAgg(g, starts, reactionsKnown), skipped };
+  const out = { ...finishMsgAgg(g, starts, reactionsKnown), skipped, dmSkipped };
   msgStatCache = { key, at: Date.now(), data: out };
   return out;
 }
@@ -1276,7 +1282,7 @@ async function rangeStats(q) {
         lastHop: ranked(a.lastHop, a.lastHopSnr),
         relays: ranked(a.relay),
         relayCount: a.relay.size, adverts: a.adverts, advertNodes: a.advertNodes.size, senders: a.senders.size,
-        farDirect: a.farDirect, maxHops: a.maxHops ? { ...a.maxHops, path: a.maxHops.path.map((h) => nameForHash(h) || `#${h}`), points: [...a.maxHops.path.map((h) => ({ hash: h, label: nameForHash(h) || `#${h}` })), { me: true, label: 'Du' }] } : null,
+        farDirect: a.farDirect, maxHops: a.maxHops ? { ...a.maxHops, path: a.maxHops.path.map((h) => nameForHash(h) || `#${h}`), points: [...a.maxHops.path.map((h) => ({ hash: h, label: nameForHash(h) || `#${h}` })), { me: true }] } : null,
       };
     } catch (e) {
       if (e.status === 403) packets = { error: 'forbidden' }; else { console.error('[stats] Pakete:', e.status || '', e.message); packets = { error: e.message }; }
@@ -1565,7 +1571,8 @@ async function switchSource(id) {
     lastPacketTs: 0, relays: [], pushReady: false,
   });
   state.myNames = new Set(cfg.myName ? [cfg.myName] : []);
-  for (const c of [state.msgs, state.heard, state.seenPackets, state.backfilled, state.otherNames, state.pkIndex, state.reactions, state.scopes, state.delivery, state.dmHeard, state.dmRoute, state.echoKey, state.echoByKey, state.resendAt]) c.clear();
+  live.buf = []; live.seen.clear(); live.since = Date.now() - 5000; // Live-Pakete der alten Quelle nicht weiter zeigen
+  for (const c of [state.msgs, state.heard, state.seenPackets, state.backfilled, state.otherNames, state.pkIndex, state.reactions, state.scopes, state.delivery, state.dmHeard, state.dmRoute, state.echoKey, state.echoByKey, state.resendAt, state.read]) c.clear();
   await tick();
   broadcast('reset', { source: state.source });
   return state.source;
@@ -1822,6 +1829,10 @@ async function handleApi(req, res, url) {
 
   // MeshCore-Funktionen der MeshMonitor-REST-API (/api/sources/…/meshcore, gleicher Token)
   const mcp = () => `/api/sources/${encodeURIComponent(state.source.id)}/meshcore`;
+  // Diese Funktionen gibt es nur bei MeshCore (Kontakt-Schlüssel, MeshCore-Teil der API) – bei Meshtastic klar ablehnen
+  const MC_ONLY = ['/api/advert', '/api/node/ping', '/api/node/reset-path', '/api/node/discover-path', '/api/node/contact',
+    '/api/node/neighbours', '/api/node/favorite', '/api/rooms/login', '/api/rooms/posts', '/api/rooms/post', '/api/react', '/api/resend'];
+  if (MC_ONLY.includes(p) && state.source && state.source.protocol !== 'meshcore') return send(res, 400, { error: T('srv.mcOnly') });
   if (p === '/api/scopes' && req.method === 'GET') {
     if (!state.source) await tick();
     if (state.source?.protocol !== 'meshcore') return send(res, 200, { defaultScope: null, regions: [] });
@@ -1931,7 +1942,7 @@ async function handleApi(req, res, url) {
         ? await mm(`${mcp()}/rooms/login-with-saved`, { raw: true, method: 'POST', body: { publicKey: pk }, timeout: 90000 })
         : await mm(`${mcp()}/rooms/login`, { raw: true, method: 'POST', body: { publicKey: pk, password: str(b.password).slice(0, 64), rememberPassword: Boolean(b.remember) }, timeout: 90000 });
       const d = unwrap(r);
-      if (r?.success === false || d?.success === false) return send(res, 422, { error: d?.error || r?.error || 'Anmeldung abgelehnt', code: 'ROOM_LOGIN_REJECTED' });
+      if (r?.success === false || d?.success === false) return send(res, 422, { error: d?.error || r?.error || T('rooms.rejected'), code: 'ROOM_LOGIN_REJECTED' });
       return send(res, 200, { ok: true });
     } catch (e) { return mmError(res, e, T); }
   }
@@ -2047,7 +2058,9 @@ async function handleApi(req, res, url) {
     }
     if (p === '/api/admin/cli' && req.method === 'POST') {
       const { b, pk } = await pkFromBody();
-      const command = str(b.command).trim();
+      let command = str(b.command).trim();
+      // Leeres Gastpasswort (= ohne Passwort): der Repeater erwartet "set guest.password " mit Leerzeichen dahinter
+      if (/^set\s+guest\.password$/i.test(command)) command = 'set guest.password ';
       if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
       if (!command || Buffer.byteLength(command) > 230) return send(res, 400, { error: T('srv.adminBadCmd') });
       // Gefährliche Befehle nur mit Bestätigung (dieselbe Liste wie MeshMonitor, das sie zusätzlich selbst prüft)
@@ -2290,7 +2303,7 @@ async function handleApi(req, res, url) {
                 bump(hears, n ? n.id : `src#${sh}`, n ? { id: n.id, name: n.long || n.short || null, hash: sh, origin: true } : { id: null, name: null, hash: sh, origin: true, amb: cand > 1 ? cand : 0 }, t);
               }
             } else { const e = hopEntry(path[i - 1]); bump(hears, e.key, e, t); }
-            if (i === path.length - 1) bump(reaches, 'me', { id: state.me || null, me: true, name: 'Du', hash: null }, t);
+            if (i === path.length - 1) bump(reaches, 'me', { id: state.me || null, me: true, name: null, hash: null }, t);
             else { const e = hopEntry(path[i + 1]); bump(reaches, e.key, e, t); }
           });
           if (hit) { used++; if (!oldest || t < oldest) oldest = t; }

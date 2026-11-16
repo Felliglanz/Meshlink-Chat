@@ -167,6 +167,8 @@ SESSION_SECRET='$SESSION_SECRET'
 SESSION_DAYS=30
 POLL_MS=3000
 IDLE_POLL_MS=15000
+# $(t 'Repeater-Verwaltung (Admin-Login, Befehle, Neustart) über MeshMonitor: 1 = an. Token braucht remote_admin lesen + schreiben.' 'Repeater admin (admin login, commands, reboot) through MeshMonitor: 1 = on. Token needs remote_admin read + write.')
+REMOTE_ADMIN=0
 # $(t 'Adresse und Port, auf denen MeshLink Chat lauscht' 'Address and port MeshLink Chat listens on')
 BIND_ADDR='$BIND_ADDR'
 HOST_PORT=$HOST_PORT

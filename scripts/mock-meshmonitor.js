@@ -180,6 +180,8 @@ if (process.env.MOCK_PROTO === 'meshcore') {
   mk({ fromNodeId: `mc:${pk('b').slice(0, 12)}`, fromName: 'R2-D2', toNodeId: `mc:${MEPK}`, toPublicKey: MEPK, text: 'BrrrrPeep - Hello Master Max 👋', channel: -1 });
   mk({ id: `sent-${Date.now() - 50000}-b`, fromNodeId: `mc:${MEPK}`, fromPublicKey: MEPK, fromName: 'Mesh@Home🤖', toNodeId: `mc:${pk('b')}`, toPublicKey: pk('b'), text: 'Ping', channel: -1, hopCount: null });
   mk({ fromName: '??', text: 'kaputt', channel: 52062 });
+  // MOCK_SPOOF=1: jemand Fremdes schreibt im Kanal unter meinem Namen (darf NICHT als eigene Nachricht gelten)
+  if (process.env.MOCK_SPOOF === '1') mk({ fromName: 'Mesh@Home🤖', text: 'Ich bin gar nicht du', channel: 4 });
   messages.reverse(); // neueste zuerst wie das Original
   // Viele Nodes für die Karte: MOCK_NODES=600 verteilt so viele Repeater/Companions rund um Düsseldorf
   for (let i = 0; i < Number(process.env.MOCK_NODES || 0); i++) {

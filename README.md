@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.4.1` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.4.2` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -159,6 +159,28 @@ journalctl -u meshlink-chat -f                                # follow the log
 Open apps reload by themselves after an update. If you only want to change the configuration:
 `nano /opt/meshlink-chat/.env` and then `/opt/meshlink-chat/install.sh --update`. Back to an older version:
 `git checkout <tag or commit>` and then `./install.sh --update`.
+
+<details>
+<summary><b>All settings in the <code>.env</code></b></summary>
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `MM_URL`, `MM_TOKEN` | – | MeshMonitor address and API token |
+| `APP_PASSWORD` | – | login password of the app (at least 8 characters) |
+| `SESSION_SECRET` | random | key for sessions and push; changing it logs out all devices |
+| `SESSION_DAYS` | `30` | how long a device stays logged in |
+| `BIND_ADDR`, `HOST_PORT` | `0.0.0.0`, `8090` | address and port MeshLink Chat listens on |
+| `MM_SOURCE` | primary source | fixed source (sourceId) in MeshMonitor |
+| `MY_NODE_ID` | automatic | own node ID if detection fails (`!a1b2c3d4` or `mc:<pubkey>`) |
+| `MY_NAME` | automatic | own sender name in channels, if it has not (yet) been learned from sent messages |
+| `REMOTE_ADMIN` | `0` | `1` = repeater admin on (see below) |
+| `POLL_MS`, `IDLE_POLL_MS` | `3000`, `15000` | poll interval in ms (app open / no app open) |
+| `HISTORY_LIMIT` | `500` | messages the server fetches per full poll (at most three times that in memory) |
+| `PUSH_CONTACT` | placeholder | contact for push services (`mailto:…` or `https://…`), only needed if a service asks for it |
+
+After every change: `/opt/meshlink-chat/install.sh --update`.
+
+</details>
 
 `uninstall.sh` removes the service, `/opt/meshlink-chat` and the push subscriptions and checks at the end that
 nothing is left. You clean up the clone folder and anything outside yourself: the HTTPS entry, the API token in
@@ -336,6 +358,8 @@ raw responses.
 - The Content Security Policy only allows the app's own files and the tile providers. Live connections are limited
   to 50.
 - Repeater admin is off by default (`REMOTE_ADMIN`). MeshLink Chat never stores admin passwords.
+- The app recognises its own messages by MeshMonitor's ID or your own node ID, not by name: someone writing under your
+  name in a channel shows up as a foreign message. Add a second own device with the same name under "My other nodes".
 - Please **don't expose it directly to the internet**, only behind an HTTPS proxy or tunnel, ideally with access
   protection.
 
