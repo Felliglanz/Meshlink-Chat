@@ -3257,11 +3257,10 @@ async function onAdminClick(e) {
   if (t.nb) { admNeighbours(false); return; }
   if (t.input) {
     const v = String(a.draft.guest || '');
+    // Leeren geht über MeshMonitor nicht: es kürzt den Befehl, die Firmware braucht aber "set guest.password " mit Leerzeichen
+    if (!v) { a.out['t:guest'] = { err: true, text: T('adm.guestNoClear') }; renderAdminBody(); return; }
     if (v.length > 15 || /\s/.test(v)) { a.out['t:guest'] = { err: true, text: T('adm.badValue') }; renderAdminBody(); return; }
     await admCli(`set guest.password ${v}`, { key: 't:guest' });
-    // Leer = Gastpasswort gelöscht: Gäste kommen ohne Passwort an den Status (so lassen es viele bewusst)
-    const o = a.out['t:guest'];
-    if (!v && o && !o.err) a.out['t:guest'] = { text: `${T('adm.guestCleared')} (${o.text})` };
     a.draft.guest = ''; renderAdminBody();
     return;
   }

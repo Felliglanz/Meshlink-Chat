@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.4.2';
+const VERSION = '1.4.3';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -2058,9 +2058,7 @@ async function handleApi(req, res, url) {
     }
     if (p === '/api/admin/cli' && req.method === 'POST') {
       const { b, pk } = await pkFromBody();
-      let command = str(b.command).trim();
-      // Leeres Gastpasswort (= ohne Passwort): der Repeater erwartet "set guest.password " mit Leerzeichen dahinter
-      if (/^set\s+guest\.password$/i.test(command)) command = 'set guest.password ';
+      const command = str(b.command).trim();
       if (!pk) return send(res, 400, { error: T('srv.unknownNode') });
       if (!command || Buffer.byteLength(command) > 230) return send(res, 400, { error: T('srv.adminBadCmd') });
       // Gefährliche Befehle nur mit Bestätigung (dieselbe Liste wie MeshMonitor, das sie zusätzlich selbst prüft)
