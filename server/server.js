@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.4.4';
+const VERSION = '1.4.5';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -293,15 +293,18 @@ async function resolveSource() {
 const sp = () => `/sources/${encodeURIComponent(state.source.id)}`;
 const mcPath = () => `/api/sources/${encodeURIComponent(state.source.id)}/meshcore`; // MeshCore-Teil (raw: true)
 
-// MeshMonitor-Version (für die Nachrichtenlängen); /api/health nennt sie nur angemeldeten Aufrufern, also mit Token.
-// Selten abfragen (alle 30 Min.); schlägt es fehl, bleibt die bisherige bzw. unbekannte Version.
+// MeshMonitor-Version (für die Nachrichtenlängen). Ältere MeshMonitor nennen sie in /api/health (mit Token),
+// neuere dort nicht mehr, dafür offen in /api/status. Erst das eine, dann das andere.
+// Selten abfragen (alle 30 Min., solange unbekannt alle 5 Min.); schlägt es fehl, gelten die alten, strengeren Grenzen.
 async function refreshMmVersion() {
-  if (Date.now() - (state.mmVersionAt || 0) < 30 * 60000) return;
+  if (Date.now() - (state.mmVersionAt || 0) < (state.mmVersion ? 30 : 5) * 60000) return;
   state.mmVersionAt = Date.now();
-  try {
-    const v = str((await mm('/api/health', { raw: true, timeout: 5000 }))?.version).slice(0, 40);
-    if (v) state.mmVersion = v;
-  } catch { /* egal: dann gelten die alten, strengeren Grenzen */ }
+  for (const path of ['/api/health', '/api/status']) {
+    try {
+      const v = str((await mm(path, { raw: true, timeout: 5000 }))?.version).slice(0, 40);
+      if (/\d+\.\d+\.\d+/.test(v)) { state.mmVersion = v; return; }
+    } catch { /* nächsten Weg versuchen */ }
+  }
 }
 const verAtLeast = (v, want) => {
   const m = /(\d+)\.(\d+)\.(\d+)/.exec(str(v));

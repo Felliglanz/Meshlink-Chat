@@ -243,7 +243,10 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       return J(200, { ok: true });
     }
     // /api/health: Version nur für angemeldete Aufrufer (wie MeshMonitor); MOCK_MMVER=4.17.2 testet die alten Grenzen
-    if (url.pathname === '/api/health') return J(200, req.headers.authorization === `Bearer ${TOKEN}` ? { status: 'ok', version: process.env.MOCK_MMVER || '4.17.3' } : { status: 'ok' });
+    // MOCK_HEALTH_NOVER=1: wie neuere MeshMonitor – /api/health ohne Version, die steht offen in /api/status
+    const ver = process.env.MOCK_MMVER || '4.17.3';
+    if (url.pathname === '/api/health') return J(200, req.headers.authorization === `Bearer ${TOKEN}` && !process.env.MOCK_HEALTH_NOVER ? { status: 'ok', version: ver } : { status: 'ok' });
+    if (url.pathname === '/api/status') return J(200, { status: 'ok', version: ver, connection: { connected: true } });
     if (req.headers.authorization !== `Bearer ${TOKEN}`) return J(401, { success: false, error: { message: 'Invalid token' } });
     const b = '/api/v1/sources/mc1';
     if (url.pathname === '/api/v1/sources') return J(200, { success: true, data: [{ id: 'mc1', name: 'Mesh@Home', type: 'meshcore', isPrimary: true }, { id: 'v3', name: 'Mesh-Mobil', type: 'meshcore', enabled: true, isPrimary: false }] });
