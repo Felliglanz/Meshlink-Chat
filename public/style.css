@@ -19,6 +19,7 @@
   --shadow: 0 1px 1.5px rgba(0, 0, 0, .12);
   --chat-bg: #e7ece9;
   --sender-l: 35%;
+  --ring: rgba(0, 0, 0, .10);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -43,6 +44,7 @@
     --shadow: 0 1px 1.5px rgba(0, 0, 0, .4);
     --chat-bg: #0b100e;
     --sender-l: 68%;
+    --ring: rgba(255, 255, 255, .13);
     color-scheme: dark;
   }
 }
@@ -103,7 +105,7 @@ svg .fill { fill: currentColor; stroke: none; }
   background: hsl(var(--h) 45% 45%); color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -.02em; overflow: hidden;
 }
 .avatar.small { width: 38px; height: 38px; font-size: 13px; }
-/* Kanal-Art: # = Hashtag-Kanal (offen, farbig), Schloss = privat (dunkel mit Ring), Globus = Public */
+/* Kanal-Art: # = Hashtag-Kanal (grün), Schloss = privat (dunkel mit lila Ring), Globus = Public – feste Farbe je Art */
 .avatar > svg { width: 50%; height: 50%; stroke-width: 2.3; }
 .avatar.tiny > svg { stroke-width: 2.6; }
 .avatar.ch-private { background: hsl(var(--h) 32% 26%); color: hsl(var(--h) 75% 82%); box-shadow: inset 0 0 0 2px hsl(var(--h) 50% 55%); }
@@ -229,6 +231,8 @@ svg .fill { fill: currentColor; stroke: none; }
 .sheet-btn.cancel { text-align: center; color: var(--muted); margin-top: 4px; }
 .sheet-btn.danger { color: var(--danger); }
 .sheet-btn.primary { background: var(--accent); color: var(--on-accent); text-align: center; font-weight: 600; }
+/* Ausgeschalteter Schalter: als Knopf erkennbar (Rahmen in Akzentfarbe), eingeschaltet = .primary */
+.sheet-btn.outline { text-align: center; font-weight: 600; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .info { padding: 4px 8px; }
 .info-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
 .info-row span { color: var(--muted); }
@@ -328,7 +332,7 @@ svg .fill { fill: currentColor; stroke: none; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .card-head small { color: var(--muted); font-size: 12px; }
 .node-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.pill { padding: 7px 12px; border-radius: 18px; background: var(--quote); font-size: 14px; font-weight: 600; }
+.pill { padding: 7px 12px; border-radius: 18px; background: var(--quote); box-shadow: inset 0 0 0 1px var(--ring); font-size: 14px; font-weight: 600; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .stat-grid > div { background: var(--quote); border-radius: 10px; padding: 8px 10px; min-width: 0; }
 .stat-grid small { display: block; color: var(--muted); font-size: 11.5px; }
@@ -369,7 +373,7 @@ svg.spark polyline { vector-effect: non-scaling-stroke; }
 .room-login { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
 .room-login input[type=password] { padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg, var(--panel)); color: inherit; font-size: 15px; }
 .room-remember { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
-.pill.primary-pill { background: var(--accent); color: var(--on-accent); }
+.pill.primary-pill { background: var(--accent); color: var(--on-accent); box-shadow: none; }
 .pill:disabled { opacity: .55; }
 mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .fav-toggle { flex-shrink: 0; align-self: center; font-size: 22px; line-height: 1; padding: 6px 4px 6px 10px; color: var(--muted); }

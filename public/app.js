@@ -391,7 +391,7 @@ function openWatch() {
   openSheet(`
     <div class="sheet-title">${T('watch.title')}</div>
     <div class="watch-intro">${T('watch.intro')}</div>
-    <button class="sheet-btn ${w.on ? 'primary' : ''}" data-w="toggle">${w.on ? T('watch.isOn') : T('watch.enable')}</button>
+    <button class="sheet-btn ${w.on ? 'primary' : 'outline'}" data-w="toggle">${w.on ? T('watch.isOn') : T('watch.enable')}</button>
     <div class="watch-row"><small>${T('watch.silentFor')}</small><div class="node-actions">${pills(WATCH_HOURS, w.hours, 'wh', (v) => T('watch.hours', { n: v }))}</div></div>
     <div class="watch-row"><small>${T('watch.batteryBelow')}</small><div class="node-actions">${pills(WATCH_VOLTS, w.volts, 'wv', (v) => (v ? `${nf(v, 1)} V` : T('common.off')))}</div></div>
     <div class="hint">${favs.length ? T('watch.watching', { list: favs.map((n) => esc(n.long || n.short)).join(', ') }) : T('watch.noFavs')} ${T('watch.batNote')}${pushOn ? '' : ` ${T('watch.pushOff')}`}</div>
@@ -633,7 +633,8 @@ const KIND_LABEL = () => ({ hashtag: T('channel.kindHashtag'), private: T('chann
 function avatar(id, cls = '') {
   if (id.startsWith('ch:')) {
     const kind = channelKind(Number(id.slice(3)));
-    return `<div class="avatar ch-${kind} ${cls}" style="--h:${hue(id)}" title="${esc(KIND_LABEL()[kind])}">${{ hashtag: ICON.hash, private: ICON.lock, public: ICON.globe }[kind]}</div>`;
+    // Feste Farbe je Art (grün = Hashtag, lila = privat), damit man die Art auf einen Blick sieht
+    return `<div class="avatar ch-${kind} ${cls}" style="--h:${kind === 'private' ? 270 : 140}" title="${esc(KIND_LABEL()[kind])}">${{ hashtag: ICON.hash, private: ICON.lock, public: ICON.globe }[kind]}</div>`;
   }
   return `<div class="avatar ${cls}" style="--h:${hue(id)}">${esc(shortName(id.replace(/^dm:/, '')).slice(0, cls === 'tiny' ? 3 : 4))}</div>`;
 }
