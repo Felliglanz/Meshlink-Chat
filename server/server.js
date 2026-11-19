@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.4.5';
+const VERSION = '1.4.6';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -440,7 +440,15 @@ async function pollMessages() {
   // MeshCore-Teil der API; er wird nur abgerufen, wenn wirklich neue Nachrichten da sind.
   if (state.source.protocol === 'meshcore') {
     const need = full || pendingDms().length || recentOwnDms() || rawList.some((r) => !state.msgs.has(str(r.id)) && !state.scopes.has(str(r.id)));
-    if (need) await fetchReactions(full).catch((e) => console.error('[react]', e.status || '', e.message));
+    if (need) {
+      const seen = await fetchReactions(full).catch((e) => { console.error('[react]', e.status || '', e.message); return null; });
+      // Volles Mesh: eine wartende DM ist schon aus den letzten 200 gerutscht (typisch nach einem Resend Minuten später).
+      // Dann tiefer nachsehen (1000, so viele hält MeshMonitor im Speicher) – höchstens alle 15 s, nicht bei jedem Abruf.
+      if (seen && !full && Date.now() - (state.deepAt || 0) > 15000 && pendingDms().some((m) => !seen.has(m.id))) {
+        state.deepAt = Date.now();
+        await fetchReactions(true).catch((e) => console.error('[react]', e.status || '', e.message));
+      }
+    }
   }
   for (const raw of rawList) {
     const created = toMs(raw.createdAt ?? raw.rxTime ?? raw.timestamp);
@@ -1495,18 +1503,29 @@ function liveWanted() {
   liveTick();
 }
 
-// Eigene DMs der letzten 10 Min., deren ACK noch aussteht -> MeshCore-Teil öfter abfragen
+// Eigene DMs, deren ACK noch aussteht -> MeshCore-Teil öfter abfragen: 10 Min. nach dem Senden bzw. nach dem
+// letzten Resend. Nach einem Resend auch eine "failed"-DM: MeshMonitor setzt dieselbe ID auf "delivered", sobald
+// das ACK des Resends kommt (sonst sähe man es erst beim großen Abgleich alle 5 Min.).
 const DELIVERY_WINDOW_MS = 10 * 60000;
-const pendingDms = () => [...state.msgs.values()].map((e) => e.msg)
-  .filter((m) => m.mine && m.dm && m.state !== 'delivered' && m.state !== 'failed' && m.ts > Date.now() - DELIVERY_WINDOW_MS);
+const pendingDms = () => {
+  const since = Date.now() - DELIVERY_WINDOW_MS;
+  return [...state.msgs.values()].map((e) => e.msg).filter((m) => {
+    if (!m.mine || !m.dm || m.state === 'delivered') return false;
+    const resent = Math.max(0, ...(state.resendAt.get(m.id) || []));
+    return resent > since || (m.state !== 'failed' && m.ts > since);
+  });
+};
 
 // Eigene DM jünger als 2 Min.: "gehört von" kann noch nachkommen, auch wenn das ACK schon da ist
 const recentOwnDms = () => [...state.msgs.values()].some((e) => e.msg.mine && e.msg.dm && e.msg.ts > Date.now() - 2 * ECHO_WINDOW_MS);
 
+// Rückgabe: IDs, die in der Antwort standen (damit der Aufrufer sieht, ob eine wartende DM fehlte)
 async function fetchReactions(full) {
   const list = asArray(await mm(`/api/sources/${encodeURIComponent(state.source.id)}/meshcore/messages?limit=${full ? 1000 : 200}`, { raw: true }), 'messages');
+  const ids = new Set();
   for (const r of list) {
     if (!r?.id) continue;
+    ids.add(str(r.id));
     if (r.reactionEmoji && r.reactionTargetId) state.reactions.set(str(r.id), { target: str(r.reactionTargetId), emoji: str(r.reactionEmoji) });
     // scopeCode: 0 = ohne Scope, >0 = mit Scope (Name nur, wenn MeshMonitor die Region kennt), null = unbekannt
     const code = r.scopeCode == null ? null : Number(r.scopeCode);
@@ -1525,6 +1544,7 @@ async function fetchReactions(full) {
       state.delivery.set(str(r.id), { state: ds, rtt: Number.isFinite(Number(r.roundTripMs)) && r.roundTripMs != null ? Math.round(Number(r.roundTripMs)) : null });
     }
   }
+  return ids;
 }
 
 // Je Gerät entscheiden: App gerade offen -> kein Push; Chat stumm -> nie; Kanal auf "alle" -> jede Nachricht.

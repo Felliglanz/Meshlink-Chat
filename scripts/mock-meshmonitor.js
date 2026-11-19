@@ -284,6 +284,8 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       // DM: ACK nach 4 s wie MeshMonitor im MeshCore-Teil (deliveryStatus); "#noack" = nach 8 s fehlgeschlagen
       if (q.toNodeId) {
         const mm = messages[0]; mm.deliveryStatus = 'sent';
+        // "#busy": viel Verkehr danach (300 Kanalnachrichten), die DM rutscht aus den letzten 200 – wie in einem vollen Mesh
+        if (q.text.includes('#busy')) for (let i = 0; i < 300; i++) messages.unshift({ protocol: 'meshcore', id: `${t + 1 + i}-busy${i}`, fromName: `Bot ${i % 30}`, toNodeId: '!ffffffff', text: `Verkehr ${i}`, channel: 0, timestamp: t + 1 + i, createdAt: t + 1 + i, hopCount: 2, scopeCode: 0 });
         setTimeout(() => { if (q.text.includes('#noack')) mm.deliveryStatus = 'failed'; else { mm.deliveryStatus = 'delivered'; mm.roundTripMs = 2345; } }, q.text.includes('#noack') ? 8000 : 4000);
         // gehört von (ab 4.17.3 im MeshCore-Teil als heardBy); "#noheard" = keiner
         if (!q.text.includes('#noheard')) setTimeout(() => { mm.heardBy = [{ hash: 'b4', name: 'RPT Mitte', snr: 7.5, hops: 1 }, { hash: 'b3', name: null, snr: 3.25, hops: 2 }]; }, 2000);
@@ -451,6 +453,9 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       if (m.channel >= 0) {
         grpPacket(m, 300, [], null); grpPacket(m, 1500, ['b46f'], 10); grpPacket(m, 2600, ['b46f', '7a7a'], -3.5);
         grpPacket({ ...m, id: `${m.id}-fremd`, fromName: 'Alex' }, 2000, ['b3f8'], 6);
+      } else if (m.deliveryStatus === 'failed') {
+        // DM: wie MeshMonitor – gleiche ID, bleibt "failed", bis das ACK des Resends kommt (hier nach 3 s)
+        setTimeout(() => { m.deliveryStatus = 'delivered'; m.roundTripMs = 1890; }, 3000);
       }
       return J(200, { success: true, data: { id, resendCount: m.resends, lastResendAt: Date.now() } });
     }
