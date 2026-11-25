@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.5.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.6.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -290,7 +290,10 @@ if something is broken.
 <details>
 <summary><b>📇 Contacts, repeaters, statistics and more</b></summary>
 
-- **Contacts** (👥): Favourites / All / Repeaters. ☆/★ sets the favourite in MeshMonitor and on the companion.
+- **Contacts** (👥): Favourites / All / Repeaters. Each row shows the type, the stored route (direct, hops or flood) and
+  the start of the key; ★ on the picture = favourite. Tapping opens the chat (repeaters and rooms: the node page), ⋮ opens
+  the menu with message, details, favourite (in MeshMonitor and on the companion), map and "Copy public key".
+- **Chat list:** channels with their own or a differing scope carry a small 🔒 tag.
 - **Node page:** request status over the air (max. 1×/min), history (battery, noise, packets), traceroute,
   stored path, direct ping, reset/discover path, neighbours, reach. Everything can also be shown on the map.
 - **Query neighbours:** a repeater sends at most 10 neighbours per request (firmware limit). "Load more" fetches the
@@ -307,7 +310,7 @@ if something is broken.
   as far as MeshMonitor's packet log (default 24 h / 1000 packets). **⤓ PDF** opens the print dialog with an A4
   layout.
 - **Mentions:** all `@` mentions of the last 7 days across all channels.
-- **Room servers:** read posts even without logging in, log in to write.
+- **Room servers:** read posts even without logging in, log in to write. The route to the room shows below the login.
 - **My other nodes:** your own second devices. They appear as "via …", without counter and without push.
 - **Source:** appears if MeshMonitor has several sources; set permanently with `MM_SOURCE` in `.env`.
 - **Language** (Settings): *Automatic* follows the browser, otherwise English or German fixed. Applies to this
@@ -328,7 +331,8 @@ needs `remote_admin` read + write, and the repeater must be saved as a contact o
 
 - **Log in** with the repeater's admin password. MeshLink Chat does not store it. If you like, **MeshMonitor**
   remembers it encrypted, then "Log in with remembered password" is enough later. The login can take up to 2 minutes.
-  MeshMonitor remembers the session; "Log out" forgets it but sends nothing.
+  MeshMonitor remembers the session; "Log out" forgets it but sends nothing. The button shows the stored route to the
+  repeater (direct, hops or flood). The guest password is not enough for managing.
 - **Status:** battery, uptime, TX and RX air time, RSSI, SNR, noise floor, packet counters (flood/direct), duplicates, errors.
 - **Console:** any repeater firmware command (`ver`, `get …`, `set …`, `neighbors` …), one reply per command.
 - **Settings:** read and save name, position and advert intervals; forwarding on/off, send advert, read and sync the

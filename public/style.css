@@ -376,8 +376,18 @@ svg.spark polyline { vector-effect: non-scaling-stroke; }
 .pill.primary-pill { background: var(--accent); color: var(--on-accent); box-shadow: none; }
 .pill:disabled { opacity: .55; }
 mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
-.fav-toggle { flex-shrink: 0; align-self: center; font-size: 22px; line-height: 1; padding: 6px 4px 6px 10px; color: var(--muted); }
-.fav-toggle.on { color: #e0a800; }
+/* Kontaktliste: Stern als Abzeichen am Avatar, Weg und gekürzter Schlüssel, ⋮ für das Menü */
+.av-wrap { position: relative; flex-shrink: 0; display: block; }
+.av-star { position: absolute; right: -3px; bottom: -3px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-style: normal; font-size: 12px; line-height: 1; color: #e0a800; background: var(--panel); box-shadow: 0 0 0 1.5px var(--line); }
+.c-route { color: var(--fg); opacity: .8; }
+.c-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; letter-spacing: .02em; }
+.row-more { flex-shrink: 0; align-self: center; display: grid; place-items: center; width: 36px; height: 36px; margin-right: -8px; border-radius: 50%; color: var(--muted); }
+.row-more svg { width: 20px; height: 20px; }
+.row-more:hover, .row-more:focus-visible { background: var(--quote); }
+.conv-scope { color: var(--muted); font-weight: 500; }
+.sheet-btn .btn-sub, .btn-sub { display: block; font-size: 12.5px; font-weight: 500; color: inherit; opacity: .85; margin-top: 2px; }
+.login-route { font-size: 12.5px; }
 
 /* ---------- Breiter Bildschirm: Chatliste links, Ansicht rechts */
 #side { display: none; }

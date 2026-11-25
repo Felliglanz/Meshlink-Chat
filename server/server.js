@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -543,6 +543,13 @@ async function companionContact(pk, fresh = false) {
   return contactCache.list.find((c) => str(c.publicKey).toLowerCase() === pk) || null;
 }
 
+// Gespeicherter Weg eines Kontakts: Hops (Kennungen), oder flood = kein Weg bekannt
+function contactRoute(c) {
+  const len = c.pathLen ?? c.path_len ?? c.outPathLen ?? null;
+  const hops = parsePath(c.outPath ?? c.out_path) || [];
+  return { hops, flood: !hops.length && (len == null || Number(len) < 0 || Number(len) === 255) };
+}
+
 // Weg einer zugestellten eigenen DM: Mit dem ACK schickt der Empfänger den Weg zurück, den die Nachricht
 // genommen hat; das Gerät speichert ihn als Pfad des Kontakts (MeshMonitor liest ihn ~1,5 s später neu ein).
 // Diesen Pfad einmal je DM kurz nach der Zustellung abholen und an der Nachricht merken (nur im Speicher).
@@ -562,9 +569,7 @@ async function fetchDmRoute(id, pk, src) {
   if (state.source?.id !== src || !state.msgs.has(id)) return;
   const c = await companionContact(pk, Date.now() - contactCache.at > 3000);
   if (!c) return;
-  const len = c.pathLen ?? c.path_len ?? c.outPathLen ?? null;
-  const hops = parsePath(c.outPath ?? c.out_path) || [];
-  const flood = !hops.length && (len == null || Number(len) < 0 || Number(len) === 255);
+  const { hops, flood } = contactRoute(c);
   const route = { hops: hops.map((h) => ({ hash: h, name: nameForHash(h) })), flood, bytes: hops.length ? Math.max(...hops.map((h) => h.length)) / 2 : null };
   state.dmRoute.set(id, route);
   const e = state.msgs.get(id);
@@ -1898,10 +1903,24 @@ async function handleApi(req, res, url) {
     try {
       const c = await companionContact(pk);
       if (!c) return send(res, 200, { known: false });
-      const len = c.pathLen ?? c.path_len ?? c.outPathLen ?? null;
-      const hops = parsePath(c.outPath ?? c.out_path) || [];
-      const flood = len == null || Number(len) < 0 || Number(len) === 255;
-      return send(res, 200, { known: true, flood: flood && !hops.length, hops: hops.map((h) => ({ hash: h, name: nameForHash(h) })) });
+      const { hops, flood } = contactRoute(c);
+      return send(res, 200, { known: true, flood, hops: hops.map((h) => ({ hash: h, name: nameForHash(h) })) });
+    } catch (e) { return mmError(res, e, T); }
+  }
+  // Wege aller Kontakte des Companions für die Kontaktliste: id -> Zahl der Hops (0 = direkt) oder 'flood'.
+  // Kommt aus derselben gemerkten Kontaktliste wie /api/node/contact, kein eigener Abruf je Kontakt.
+  if (p === '/api/contacts/routes' && req.method === 'GET') {
+    if (state.source?.protocol !== 'meshcore') return send(res, 200, { routes: {} });
+    try {
+      await companionContact('');
+      const routes = {};
+      for (const c of contactCache.list) {
+        const pk = str(c.publicKey).toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(pk)) continue;
+        const r = contactRoute(c);
+        routes[`mc:${pk}`] = r.flood ? 'flood' : r.hops.length;
+      }
+      return send(res, 200, { routes });
     } catch (e) { return mmError(res, e, T); }
   }
   if (p === '/api/node/neighbours' && req.method === 'GET') {

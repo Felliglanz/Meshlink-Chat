@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.5.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.6.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -291,7 +291,10 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 <details>
 <summary><b>📇 Kontakte, Repeater, Statistik und mehr</b></summary>
 
-- **Kontakte** (👥): Favoriten / Alle / Repeater. ☆/★ setzt den Favoriten in MeshMonitor und auf dem Companion.
+- **Kontakte** (👥): Favoriten / Alle / Repeater. Jede Zeile zeigt Art, gespeicherten Weg (direkt, Hops oder Flood) und
+  den Anfang des Schlüssels; ★ am Bild = Favorit. Tippen öffnet den Chat (Repeater und Rooms: die Node-Seite), ⋮ das Menü
+  mit Nachricht, Details, Favorit (in MeshMonitor und auf dem Companion), Karte und „Schlüssel kopieren“.
+- **Chatliste:** Kanäle mit eigenem oder abweichendem Scope tragen ein kleines 🔒-Schild.
 - **Node-Seite:** Status per Funk abfragen (max. 1×/Min.), Verläufe (Akku, Rauschen, Pakete), Traceroute,
   gespeicherter Pfad, Direkt-Ping, Pfad zurücksetzen/suchen, Nachbarn, Reach. Alles lässt sich auch auf der Karte zeigen.
 - **Nachbarn abfragen:** Ein Repeater schickt je Anfrage höchstens 10 Nachbarn (Grenze der Firmware). „Weitere laden“
@@ -307,7 +310,7 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 - **Statistik:** Heute, Gestern oder 7 Tage, bei jedem Öffnen frisch berechnet. Paketzahlen reichen nur so weit wie das
   Paket-Log von MeshMonitor (Standard 24 h / 1000 Pakete). **⤓ PDF** öffnet den Druckdialog mit A4-Layout.
 - **Erwähnungen:** alle `@`-Erwähnungen der letzten 7 Tage über alle Kanäle.
-- **Room-Server:** Beiträge lesen auch ohne Anmeldung, zum Schreiben anmelden.
+- **Room-Server:** Beiträge lesen auch ohne Anmeldung, zum Schreiben anmelden. Unter dem Anmelden steht der Weg zum Room.
 - **Meine weiteren Nodes:** eigene Zweitgeräte. Sie erscheinen als „via …“, ohne Zähler und ohne Push.
 - **Quelle:** erscheint bei mehreren Quellen in MeshMonitor; dauerhaft per `MM_SOURCE` in der `.env`.
 - **Sprache** (Einstellungen): *Automatisch* folgt dem Browser, sonst Deutsch oder Englisch fest. Gilt nur auf diesem
@@ -327,7 +330,8 @@ deinem Gerät gespeichert sein.
 
 - **Anmelden** mit dem Admin-Passwort des Repeaters. MeshLink Chat speichert es nicht. Auf Wunsch merkt es sich
   **MeshMonitor** verschlüsselt, dann reicht später „Mit gemerktem Passwort anmelden“. Die Anmeldung kann bis zu
-  2 Minuten dauern. MeshMonitor merkt sich die Sitzung; „Abmelden“ vergisst sie, sendet aber nichts.
+  2 Minuten dauern. MeshMonitor merkt sich die Sitzung; „Abmelden“ vergisst sie, sendet aber nichts. Im Knopf steht der
+  gespeicherte Weg zum Repeater (direkt, Hops oder Flood). Das Gastpasswort reicht für die Verwaltung nicht.
 - **Status:** Akku, Laufzeit, Sende- und Empfangszeit, RSSI, SNR, Rauschpegel, Paketzähler (Flood/Direkt), Duplikate, Fehler.
 - **Konsole:** beliebige Befehle der Repeater-Firmware (`ver`, `get …`, `set …`, `neighbors` …), eine Antwort je Befehl.
 - **Einstellungen:** Name, Position, Advert-Intervalle lesen und speichern; Weiterleiten an/aus, Advert senden, Uhrzeit

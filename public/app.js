@@ -816,10 +816,18 @@ function renderList(app = $('#app')) {
       <button class="conv" data-conv="${esc(c.key)}">
         ${avatar(c.key)}
         <div class="conv-body">
-          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ` <small class="conv-flag" title="${esc(T('list.mutedFlag'))}">🔕</small>` : convPref(c.key) === 'all' ? ` <small class="conv-flag" title="${esc(T('list.allFlag'))}">📣</small>` : ''}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
+          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ` <small class="conv-flag" title="${esc(T('list.mutedFlag'))}">🔕</small>` : convPref(c.key) === 'all' ? ` <small class="conv-flag" title="${esc(T('list.allFlag'))}">📣</small>` : ''}${convScopeFlag(c.key)}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
           <div class="conv-bottom"><span class="conv-preview">${preview}</span>${c.unread ? `<span class="badge">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}</div>
         </div>
       </button>`;
+  };
+  // Kanal mit eigenem oder abweichendem Scope: kleines Schild (der Standard der Quelle steht nicht an jedem Kanal)
+  const convScopeFlag = (key) => {
+    if (!key.startsWith('ch:') || S.source?.protocol !== 'meshcore') return '';
+    const idx = Number(key.slice(3));
+    const e = effectiveScope(idx);
+    const show = e.scope && (e.from === 'own' || (e.from === 'channel' && e.scope !== S.scopeInfo?.defaultScope));
+    return show ? ` <small class="conv-flag conv-scope" title="${esc(scopeLabel(idx, true))}">🔒 ${esc(e.scope)}</small>` : '';
   };
   // Suchzeile (Name des Chats) und Filter-Chips: Alles · Ungelesen · ★ (Favoriten-Kontakte) · DMs · Kanäle
   const f = LIST_FILTERS.includes(S.listFilter) ? S.listFilter : 'all';
@@ -1027,15 +1035,47 @@ function renderContacts() {
       const t = e.target.closest('[data-tab]');
       if (t) { S.contactTab = t.dataset.tab; renderContactList(); $('#nodes').scrollTop = 0; }
     };
+    // Tippen = direkt zum Chat (Companions) bzw. zur Node-Seite; ⋮ = Menü mit allen Aktionen
     $('#nodes').onclick = (e) => {
-      const f = e.target.closest('[data-fav]');
-      if (f) { e.stopPropagation(); toggleFav(f.dataset.fav); return; }
+      const m = e.target.closest('[data-more]');
+      if (m) { e.stopPropagation(); openContact(m.dataset.more); return; }
       const it = e.target.closest('[data-node]');
-      if (it) openContact(it.dataset.node);
+      if (!it) return;
+      const n = node(it.dataset.node);
+      if (n && canDm(n)) go('chat', `dm:${n.id}`); else go('node', it.dataset.node);
     };
+    $('#nodes').onkeydown = (e) => {
+      const m = e.target.closest?.('[data-more]');
+      if (m && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); openContact(m.dataset.more); }
+    };
+    loadContactRoutes();
   }
   renderContactList();
 }
+
+// Gespeicherte Wege der Kontakte auf dem Companion (nur MeshCore): id -> Hops (0 = direkt) oder 'flood'
+S.cRoutes = {};
+async function loadContactRoutes() {
+  if (S.source?.protocol !== 'meshcore' || Date.now() - (S.cRoutesAt || 0) < 30000) return;
+  S.cRoutesAt = Date.now();
+  try {
+    const r = await api('/api/contacts/routes');
+    S.cRoutes = r.routes || {};
+    if (S.view === 'contacts') renderContactList();
+  } catch { S.cRoutesAt = 0; }
+}
+// Weg zu einem Kontakt als kurzer Text; null = unbekannt (kein Kontakt auf dem Gerät)
+function contactRouteText(n) {
+  if (S.source?.protocol === 'meshcore') {
+    const r = S.cRoutes[n.id.toLowerCase()];
+    if (r == null) return null;
+    return r === 'flood' ? T('contacts.flood') : r === 0 ? T('common.direct') : T('common.hops', { n: r });
+  }
+  return n.hops != null ? T('common.hops', { n: n.hops }) : null;
+}
+const keyShort = (n) => (n.id.startsWith('mc:') ? n.id.slice(3, 11) : n.id);
+// Avatar mit Stern-Abzeichen für Favoriten
+const favAvatar = (n) => `<span class="av-wrap">${avatar('dm:' + n.id)}${n.fav ? `<i class="av-star" title="${esc(T('fav.label'))}">★</i>` : ''}</span>`;
 
 function renderContactList() {
   const q = ($('#q')?.value || '').trim().toLowerCase();
@@ -1052,14 +1092,16 @@ function renderContactList() {
   list = list.slice(0, 400);
   $('#nodes').innerHTML = list.map((n) => {
     const t = typeOf(n);
+    const route = contactRouteText(n);
+    const name = n.long || n.short || n.id;
     return `
     <button class="conv" data-node="${esc(n.id)}">
-      ${avatar('dm:' + n.id)}
+      ${favAvatar(n)}
       <div class="conv-body">
-        <div class="conv-top"><span class="conv-title">${esc(n.long || n.short || n.id)}</span><span class="conv-time">${t ? `${t.icon}` : ''}</span></div>
-        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${t.label} · ` : ''}${esc(ago(n.lastHeard))}${n.hops != null ? ` · ${T('common.hops', { n: n.hops })}` : ''}</span></div>
+        <div class="conv-top"><span class="conv-title">${esc(name)}</span><span class="conv-time">${esc(ago(n.lastHeard))}</span></div>
+        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${t.icon} ${t.label} · ` : ''}${route ? `<span class="c-route">↪ ${esc(route)}</span> · ` : ''}<code class="c-key">${esc(keyShort(n))}</code></span></div>
       </div>
-      ${S.source?.protocol === 'meshcore' ? `<span class="fav-toggle ${n.fav ? 'on' : ''}" role="button" tabindex="0" data-fav="${esc(n.id)}" aria-label="${esc(n.fav ? T('contacts.unfav') : T('contacts.fav'))}">${n.fav ? '★' : '☆'}</span>` : n.fav ? '<span class="fav-toggle on">★</span>' : ''}
+      <span class="row-more" role="button" tabindex="0" data-more="${esc(n.id)}" aria-label="${esc(T('contacts.moreFor', { name }))}">${ICON.more}</span>
     </button>`;
   }).join('') + (total > list.length ? `<div class="empty">${T('contacts.more', { n: total - list.length })}</div>` : '')
     || `<div class="empty">${S.contactTab === 'fav' ? T('contacts.noFavs') : T('contacts.none')}</div>`;
@@ -1087,21 +1129,31 @@ function openContact(id) {
   if (!n) return;
   const t = typeOf(n);
   const row = (k, v) => (v == null || v === '' ? '' : `<div class="info-row"><span>${k}</span><b>${esc(v)}</b></div>`);
+  const mc = S.source?.protocol === 'meshcore';
+  const route = contactRouteText(n);
+  const name = n.long || n.short || 'Node';
   openSheet(`
-    <div class="contact-head">${avatar('dm:' + n.id)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}</div></div></div>
+    <div class="contact-head">${favAvatar(n)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}</div></div></div>
     <div class="info">
       ${row(T('node.lastHeard'), n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString(LOC)})` : null)}
-      ${row('Hops', n.hops)}
+      ${mc ? row(T('contact.route'), route) : row('Hops', n.hops)}
       ${row('SNR', n.snr)}
-      ${row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
+      ${mc && n.id.startsWith('mc:') ? row(T('contact.key'), `${n.id.slice(3, 11)}…${n.id.slice(-8)}`) : row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
     </div>
     ${canDm(n) ? `<button class="sheet-btn primary" data-act="dm">${T('contact.send')}</button>` : ''}
     <button class="sheet-btn" data-act="details">${nodeKind(n) ? T('contact.detailsStatus') : T('contact.details')}</button>
-    ${S.source?.protocol === 'meshcore' ? `<button class="sheet-btn" data-act="fav">${n.fav ? T('contact.unfav') : T('contact.fav')}</button>` : ''}
+    ${mc ? `<button class="sheet-btn" data-act="fav">${n.fav ? T('contact.unfav') : T('contact.fav')}</button>` : ''}
+    <button class="sheet-btn" data-act="map">${T('contact.map')}</button>
+    ${mc && n.id.startsWith('mc:') ? `<button class="sheet-btn" data-act="key">${T('contact.copyKey')}</button>` : ''}
     <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     if (e.target.closest('[data-act="fav"]')) { closeSheet(); toggleFav(n.id); }
-    if (e.target.closest('[data-act="dm"]')) { closeSheet(); go('chat', `dm:${n.id}`, S.view === 'contacts'); }
+    if (e.target.closest('[data-act="dm"]')) { closeSheet(); go('chat', `dm:${n.id}`); }
     if (e.target.closest('[data-act="details"]')) { closeSheet(); go('node', n.id); }
+    if (e.target.closest('[data-act="map"]')) { closeSheet(); showOnMap({ title: name, numberFrom: 1, points: [{ id: n.id, label: name, tag: '★' }] }); }
+    if (e.target.closest('[data-act="key"]')) {
+      closeSheet();
+      navigator.clipboard?.writeText(n.id.slice(3)).then(() => toast(T('contact.keyCopied')), () => toast(T('common.copyFailed')));
+    }
   });
 }
 
@@ -1271,7 +1323,9 @@ function drawRoom(first) {
         <input id="room-pw" type="password" placeholder="${esc(T('rooms.pw'))}" autocomplete="off">
         <label class="room-remember"><input type="checkbox" id="room-rem"> ${T('rooms.remember')}</label>
         <div class="node-actions"><button class="pill primary-pill" type="submit">${T('rooms.login')}</button><button class="pill" type="button" id="room-saved">${T('rooms.saved')}</button></div>
+        <div class="login-route muted" id="room-route"></div>
       </form>`;
+    loginRoute(rm.id).then((r) => { const el = $('#room-route'); if (el && r) el.textContent = `↪ ${T('login.routeLabel', { route: r })}`; });
     const login = async (body) => {
       $('#room-sub').textContent = T('rooms.loggingIn');
       try { await api('/api/rooms/login', { method: 'POST', body: { id: rm.id, ...body } }); toast(T('rooms.loggedIn')); foot.innerHTML = ''; await loadRoom(true); } catch (err) { toast(err.status === 422 ? T('rooms.rejected') : permHint(err, 'messages:write')); drawRoom(false); }
@@ -3074,6 +3128,18 @@ function admError(e) {
 }
 const admValue = (reply) => String(reply || '').trim().replace(/^>\s?/, '');
 
+// Gespeicherter Weg zum Repeater/Room für den Anmelde-Knopf: die Anmeldung geht per Funk diesen Weg
+// (oder per Flood, wenn keiner bekannt ist). null = unbekannt / kein Kontakt auf dem Gerät.
+async function loginRoute(id) {
+  try {
+    const c = await api(`/api/node/contact?id=${encodeURIComponent(id)}`);
+    if (!c?.known) return null;
+    if (c.flood) return T('login.routeFlood');
+    if (!c.hops.length) return T('login.routeDirect');
+    return `${T('common.hops', { n: c.hops.length })} · ${c.hops.map((h) => h.name || `#${h.hash}`).join(' › ')}`;
+  } catch { return null; }
+}
+
 function renderAdmin() {
   const app = $('#app');
   const id = S.conv;
@@ -3103,6 +3169,8 @@ function renderAdmin() {
     $('#adm-form').onsubmit = (e) => { e.preventDefault(); const v = $('#adm-input').value.trim(); if (v) { $('#adm-input').value = ''; admCli(v, { log: true }); } };
     $('#adm-input').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#adm-form').requestSubmit(); } };
     loadAdminSession();
+    const a = S.adm;
+    loginRoute(id).then((r) => { if (S.adm === a && r) { a.route = r; renderAdminBody(); } });
   }
   renderAdminBody();
 }
@@ -3156,9 +3224,10 @@ function renderAdminBody() {
         ${s.reason === 'other_radio' ? `<div class="hint left">${T('adm.otherRadio')}</div>` : ''}
         <input class="adm-field" type="password" id="adm-pw" maxlength="15" placeholder="${esc(T('adm.password'))}" autocomplete="off" ${busy('login') ? 'disabled' : ''}>
         ${s.canRemember ? `<label class="adm-check"><input type="checkbox" id="adm-remember"> ${T('adm.remember')}</label>` : ''}
-        <button class="sheet-btn primary" data-adm="login" ${a.busy ? 'disabled' : ''}>${busy('login') ? T('adm.loggingIn') : T('adm.login')}</button>
+        <button class="sheet-btn primary" data-adm="login" ${a.busy ? 'disabled' : ''}>${busy('login') ? T('adm.loggingIn') : T('adm.login')}${a.route ? `<small class="btn-sub">↪ ${esc(a.route)}</small>` : ''}</button>
         ${s.canRemember ? `<button class="sheet-btn" data-adm="saved" ${a.busy ? 'disabled' : ''}>${busy('saved') ? T('adm.loggingIn') : T('adm.loginSaved')}</button>` : ''}
         ${out('login')}
+        <div class="hint">${T('adm.guestHint')}</div>
         <div class="hint">${T('adm.loginHint')}</div>
       </section>`;
   } else {
