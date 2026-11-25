@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.7.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.8.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -59,6 +59,9 @@ längster Weg …), Pakettypen, SNR/RSSI. Lässt sich als **PDF** speichern.
 🌍 **Deutsch und Englisch.** Die App folgt der Sprache des Browsers und lässt sich pro Gerät umstellen
 (☰ → Einstellungen → Sprache). Push-Nachrichten kommen in der Sprache des jeweiligen Geräts. Weitere Sprachen
 sind eine einzelne Datei, siehe [Weitere Sprache hinzufügen](#weitere-sprache-hinzufügen).
+
+🌗 **Hell, dunkel oder wie das System.** Ein helles, ruhiges Design mit eigenen Linien-Symbolen und der
+mitgelieferten Schrift Inter. Das Farbschema stellst du pro Gerät direkt im ☰-Menü um.
 
 <p align="center">
   <img src="docs/screenshots/chats.png" width="190" alt="Chatliste">
@@ -217,7 +220,7 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 
 - **Leiste unten:** Chats · Kontakte · Karte · Repeater (nur MeshCore) · Mehr (= das ☰-Menü). Die Zahl an „Chats“
   zählt die Chats mit ungelesenen Nachrichten. Im geöffneten Chat ist die Leiste ausgeblendet, am PC sitzt sie unter der
-  Chatliste.
+  Chatliste. Das ☰-Menü zeigt nur, was die Leiste nicht hat, dazu den Schalter **System · Hell · Dunkel** (pro Gerät).
 - **Suchen und filtern:** Die Suchzeile über der Liste sucht im Namen der Chats (Nachrichtentext: ☰ → Nachrichten
   suchen). Darunter die Filter **Alles · Ungelesen · ★ · DMs · Kanäle**; ★ zeigt DMs mit Favoriten-Kontakten. Den Filter
   merkt sich jedes Gerät.
@@ -226,14 +229,15 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 - **Kanal-Symbol (MeshCore):** **#** = Hashtag-Kanal (Schlüssel aus dem Namen, jeder mit dem Namen kann mitlesen),
   **Schloss** = privater Kanal (eigener Schlüssel), **Globus** = Public. Der Server erkennt die Art am Schlüssel aus
   MeshMonitor. Der Schlüssel selbst geht nie an die App.
+- **Nachricht nach rechts wischen**: antworten (Android vibriert kurz, sobald Loslassen antwortet).
 - **Lange drücken** (am PC: Rechtsklick) auf eine Nachricht: Reaktion, Antworten, Kopieren, DM, Details.
   **Doppeltippen**: ❤️. **Auf eine Reaktion tippen**: dieselbe Reaktion senden. Reaktionen gehen ins Mesh und lassen
   sich nicht zurücknehmen (bei MeshCore muss „Reaktionen senden“ in MeshMonitor für die Quelle erlaubt sein).
-- **📡 n** unter eigenen Kanalnachrichten zeigt, wie viele Repeater sie hörbar weitergesendet haben. Antippen zeigt sie
+- **Das Antennen-Symbol mit Zahl** unter eigenen Kanalnachrichten zeigt, wie viele Repeater sie hörbar weitergesendet haben. Antippen zeigt sie
   mit Position im Weg und SNR. Einen SNR-Wert gibt es nur für die Station, die dein Gerät direkt gehört hat. Die übrigen
   stehen nur im Weg. Zugeordnet wird über die verschlüsselten Bytes des Pakets, die bei jeder Kopie gleich sind. So zählen
   auch Echos nach einem Resend, und jemand, der zur selben Zeit denselben Text schreibt, wird nicht mitgezählt.
-- **Eigene DM:** 📡 erscheint, sobald MeshMonitor Repeater-Echos gehört hat. Nach der Zustellung (✓✓) steht in den
+- **Eigene DM:** Das Antennen-Symbol erscheint, sobald MeshMonitor Repeater-Echos gehört hat. Nach der Zustellung (✓✓) steht in den
   Details der **Weg zum Empfänger**, den der Empfänger mit der Bestätigung zurückmeldet. Eine eigene DM lange
   drücken bietet **Pfad zurücksetzen** und, solange sie nicht zugestellt ist, **per Flood neu senden**.
 - **Empfangen:** `↳ 2 Hops · 1B` zeigt den Weg zu dir und die Hash-Größe (1/2/3 Byte je Repeater-Kennung).
@@ -324,7 +328,7 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 <summary><b>🔧 Repeater-Verwaltung (Admin)</b></summary>
 
 Ausgeschaltet, bis du in der `.env` **`REMOTE_ADMIN=1`** setzt und den Dienst neu startest
-(`systemctl restart meshlink-chat`). Dann steht auf der Node-Seite eines Repeaters oder Room-Servers **🔧 Verwaltung**.
+(`systemctl restart meshlink-chat`). Dann steht auf der Node-Seite eines Repeaters oder Room-Servers **Verwaltung** (Schraubenschlüssel).
 Alles läuft über MeshMonitor; der Token braucht `remote_admin` lesen + schreiben, und der Repeater muss als Kontakt auf
 deinem Gerät gespeichert sein.
 
@@ -409,6 +413,7 @@ Neue Einträge in `de.json` und `en.json` ergänzen und mit `node scripts/check-
 | `server/push.js` | Web Push ohne Bibliothek (VAPID aus `SESSION_SECRET` abgeleitet) |
 | `server/i18n.js` | lädt die Sprachdateien, wählt die Sprache je Gerät (Cookie `ml_lang`, sonst Browser-Sprache) |
 | `public/` | die PWA: `index.html`, `style.css`, `sw.js`, Manifest, Icons, Leaflet |
+| `public/fonts/` | Schrift Inter (SIL Open Font License, `OFL.txt`) |
 | `public/js/` | die App als ES-Module ohne Build-Schritt: Einstieg `main.js`, Grundlagen in `core/` (Sprache, Zustand, API, Helfer), Ansichten in `views/`, Chat in `chat/`, Karte und Paket-Analyzer in `map/` |
 | `public/i18n/` | Sprachdateien, eine je Sprache |
 | `install.sh` / `uninstall.sh` | Einrichten, Aktualisieren, Entfernen auf dem Server |
@@ -419,5 +424,6 @@ Neue Einträge in `de.json` und `en.json` ergänzen und mit `node scripts/check-
 
 ## Lizenz
 
-MIT, siehe [LICENSE](LICENSE). Enthält [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`).
+MIT, siehe [LICENSE](LICENSE). Enthält [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`)
+und die Schrift [Inter](https://rsms.me/inter/) (SIL Open Font License 1.1, `public/fonts/OFL.txt`).
 MeshLink Chat ist ein eigenständiges Projekt und gehört weder zu MeshMonitor noch zu MeshCore oder Meshtastic.

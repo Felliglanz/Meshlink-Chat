@@ -4,7 +4,7 @@ import { T } from '../core/i18n.js';
 import { $, ago, compass, distKm, esc, fmtKm } from '../core/util.js';
 import { APP_VERSION, load, S, save } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { closeSheet, openSheet, toast } from '../ui.js';
 import { myName } from '../data.js';
 import { go } from '../nav.js';
@@ -53,7 +53,7 @@ export function renderMap() {
       <header class="bar">
         <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         <div class="bar-title"><h2>${T('map.title')}</h2><div class="sub" id="map-sub">${T('common.loading')}</div></div>
-        ${S.source?.protocol === 'meshcore' ? `<button class="bar-pill${S.live.on ? ' on' : ''}" id="live-btn" title="${esc(T('map.liveTitle'))}">⚡ Live</button><button class="bar-pill" id="trace-btn" title="${esc(T('map.traceTitle'))}">🧭 Trace</button>` : ''}
+        ${S.source?.protocol === 'meshcore' ? `<button class="bar-pill${S.live.on ? ' on' : ''}" id="live-btn" title="${esc(T('map.liveTitle'))}">${ic('bolt')}Live</button><button class="bar-pill" id="trace-btn" title="${esc(T('map.traceTitle'))}">${ic('compass')}Trace</button>` : ''}
       </header>
       <div class="segments" id="map-range">${MAP_RANGES.map(([d, l]) => `<button class="seg" data-days="${d}">${l}</button>`).join('')}<button class="seg" data-links="1" title="${esc(T('map.linksTitle'))}">${T('map.links')}</button></div>
       <div class="map-focus hidden" id="map-focus"></div>
@@ -368,10 +368,10 @@ export function drawMap(fit) {
       mk.addTo(S.mapLayer);
       continue;
     }
-    mk.bindPopup(`<div class="map-pop"><b>${n.fav ? '★ ' : ''}${esc(name)}</b>
-      <div>${n.local ? T('map.yourNode') : t ? `${t.icon} ${esc(t.label)}` : 'Node'}</div>
+    mk.bindPopup(`<div class="map-pop"><b>${n.fav ? ic('star') : ''}${esc(name)}</b>
+      <div>${n.local ? T('map.yourNode') : t ? `${ic(t.icon)}${esc(t.label)}` : 'Node'}</div>
       <div class="muted">${T('chat.lastHeard', { ago: esc(ago(n.lastHeard)) })}${n.hops != null ? ` · ${T('common.hops', { n: n.hops })}` : ''}${n.snr != null ? ` · SNR ${esc(n.snr)}` : ''}</div>
-      ${!n.local && meNode ? `<div class="muted">📍 ${T('map.fromYou', { km: fmtKm(distKm(meNode, n)), dir: compass(meNode, n) })}</div>` : ''}
+      ${!n.local && meNode ? `<div class="muted">${ic('pin')}${T('map.fromYou', { km: fmtKm(distKm(meNode, n)), dir: compass(meNode, n) })}</div>` : ''}
       ${!n.local && canDm(n) ? `<button class="map-dm" data-map-dm="${esc(n.id)}">${T('contact.send')}</button>` : ''}
       ${!n.local ? `<button class="map-dm map-sec" data-map-node="${esc(n.id)}">${T('map.detailsStatus')}</button>` : ''}</div>`);
     mk.bindTooltip(esc(name), { direction: 'top', offset: [0, -6] });

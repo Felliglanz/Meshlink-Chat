@@ -4,7 +4,7 @@ import { LOC, T } from './core/i18n.js';
 import { distKm, esc, fmtKm } from './core/util.js';
 import { checkVersion, load, S, save } from './core/state.js';
 import { api } from './core/api.js';
-import { ICON } from './core/icons.js';
+import { ICON, ic } from './core/icons.js';
 import { closeSheet, openSheet } from './ui.js';
 import { effectiveScope } from './scope.js';
 import { isMuted } from './prefs.js';
@@ -60,7 +60,7 @@ export function renderText(text) {
     const lat = Number(la); const lon = Number(lo);
     if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) continue;
     const d = S.mePos ? ` · ${fmtKm(distKm({ lat: S.mePos[0], lon: S.mePos[1] }, { lat, lon }))}` : '';
-    out += renderMentions(text.slice(last, m.index).replace(/📍\s*$/u, '')) + `<button class="geo" data-geo="${lat},${lon}" title="${esc(T('chat.showOnMap'))}">📍 ${esc(la)}, ${esc(lo)}${d}</button>`;
+    out += renderMentions(text.slice(last, m.index).replace(/📍\s*$/u, '')) + `<button class="geo" data-geo="${lat},${lon}" title="${esc(T('chat.showOnMap'))}">${ic('pin')}${esc(la)}, ${esc(lo)}${d}</button>`;
     last = m.index + all.length;
   }
   return out + renderMentions(text.slice(last));

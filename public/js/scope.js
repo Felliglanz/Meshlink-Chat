@@ -4,7 +4,7 @@ import { LOC, T } from './core/i18n.js';
 import { $, esc } from './core/util.js';
 import { load, S, save } from './core/state.js';
 import { api } from './core/api.js';
-import { ICON } from './core/icons.js';
+import { ICON, ic } from './core/icons.js';
 import { closeSheet, openSheet, toast } from './ui.js';
 import { channelName, channelScope } from './data.js';
 import { scheduleRender } from './nav.js';
@@ -25,10 +25,12 @@ export function effectiveScope(idx) {
 export function scopeLabel(idx, long = false) {
   const e = effectiveScope(idx);
   if (e.from === 'unknown') return long ? T('scope.sourceDefaultLong') : T('scope.defaultShort');
-  const base = e.scope ? `🔒 ${e.scope}` : T('scope.none');
+  const base = e.scope || T('scope.none');
   if (!long) return base;
   return `${base}${e.from === 'own' ? ` · ${T('scope.own')}` : e.from === 'default' ? ` · ${T('scope.sourceDefault')}` : ''}`;
 }
+// Dasselbe als HTML mit Symbol davor (Schloss = mit Scope, Globus = ohne bzw. Standard)
+export const scopeHtml = (idx, long = false) => `${ic(effectiveScope(idx).scope ? 'lock' : 'globe')}${esc(scopeLabel(idx, long))}`;
 export async function loadScopes() {
   if (S.source?.protocol !== 'meshcore') return;
   try { S.scopeInfo = await api('/api/scopes'); scheduleRender(); } catch { /* egal */ }
@@ -46,8 +48,8 @@ export function openScopePicker(idx) {
   openSheet(`
     <div class="sheet-title">${T('scope.title', { name: esc(channelName(idx)) })}</div>
     ${opt(null, T('scope.inherit'), ch ? T('scope.inheritChannel', { scope: esc(ch) }) : def ? T('scope.inheritDefault', { scope: esc(def) }) : T('scope.inheritNone'))}
-    ${opt('', T('scope.optNone'), T('scope.optNoneSub'))}
-    ${known.map((r) => opt(r, `🔒 ${esc(r)}`)).join('')}
+    ${opt('', `${ic('globe')}${T('scope.optNone')}`, T('scope.optNoneSub'))}
+    ${known.map((r) => opt(r, `${ic('lock')}${esc(r)}`)).join('')}
     <form class="custom-emoji" id="scope-form"><input id="scope-in" maxlength="63" placeholder="${esc(T('scope.customPh'))}" autocomplete="off" autocapitalize="off"><button class="sheet-btn primary" type="submit">${T('common.apply')}</button></form>
     <div class="hint">${T('scope.hint')}</div>
     <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {

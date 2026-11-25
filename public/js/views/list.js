@@ -3,7 +3,7 @@
 import { T } from '../core/i18n.js';
 import { $, esc, listTime } from '../core/util.js';
 import { load, S, save } from '../core/state.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { avatar } from '../ui.js';
 import { chSort, chSortLabel, conversations, convTitle, isMine, isOwnOther, node, nodeName, openChannelSort, updateBadge } from '../data.js';
 import { effectiveScope, scopeLabel } from '../scope.js';
@@ -62,7 +62,7 @@ export function renderList(app = $('#app')) {
       <button class="conv" data-conv="${esc(c.key)}">
         ${avatar(c.key)}
         <div class="conv-body">
-          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ` <small class="conv-flag" title="${esc(T('list.mutedFlag'))}">🔕</small>` : convPref(c.key) === 'all' ? ` <small class="conv-flag" title="${esc(T('list.allFlag'))}">📣</small>` : ''}${convScopeFlag(c.key)}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
+          <div class="conv-top"><span class="conv-title">${esc(convTitle(c.key))}${c.muted ? ` <small class="conv-flag" title="${esc(T('list.mutedFlag'))}">${ic('mute')}</small>` : convPref(c.key) === 'all' ? ` <small class="conv-flag" title="${esc(T('list.allFlag'))}">${ic('megaphone')}</small>` : ''}${convScopeFlag(c.key)}</span><span class="conv-time ${c.unread ? 'accent' : ''}">${listTime(l?.ts)}</span></div>
           <div class="conv-bottom"><span class="conv-preview">${preview}</span>${c.unread ? `<span class="badge">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}</div>
         </div>
       </button>`;
@@ -73,7 +73,7 @@ export function renderList(app = $('#app')) {
     const idx = Number(key.slice(3));
     const e = effectiveScope(idx);
     const show = e.scope && (e.from === 'own' || (e.from === 'channel' && e.scope !== S.scopeInfo?.defaultScope));
-    return show ? ` <small class="conv-flag conv-scope" title="${esc(scopeLabel(idx, true))}">🔒 ${esc(e.scope)}</small>` : '';
+    return show ? ` <small class="conv-flag conv-scope" title="${esc(scopeLabel(idx, true))}">${ic('lock')}${esc(e.scope)}</small>` : '';
   };
   // Suchzeile (Name des Chats) und Filter-Chips: Alles · Ungelesen · ★ (Favoriten-Kontakte) · DMs · Kanäle
   const f = LIST_FILTERS.includes(S.listFilter) ? S.listFilter : 'all';

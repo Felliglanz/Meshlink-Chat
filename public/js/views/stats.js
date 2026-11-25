@@ -4,7 +4,7 @@ import { LOC, T } from '../core/i18n.js';
 import { $, esc, fmtBytes, fmtKm, hm, nf, pad } from '../core/util.js';
 import { S } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { permHint, toast } from '../ui.js';
 import { channelName } from '../data.js';
 import { go } from '../nav.js';
@@ -137,7 +137,7 @@ function drawStats() {
   const mapBtn = (i) => `<button class="pill" data-stat-map="${i}">${T('stats.map')}</button>`;
   S.statFocus = [];
   const focus = (f) => S.statFocus.push(f) - 1;
-  const rec = (icon, title, main, sub, btn = '') => `<div class="record"><span class="record-icon">${icon}</span><div class="record-main"><small>${esc(title)}</small><b>${esc(main)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>${btn}</div>`;
+  const rec = (icon, title, main, sub, btn = '') => `<div class="record"><span class="record-icon">${ICON[icon]}</span><div class="record-main"><small>${esc(title)}</small><b>${esc(main)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>${btn}</div>`;
   const hopsTxt = (h) => (h == null ? '' : ` · ${h === 0 ? T('common.direct') : T('common.hops', { n: h })}`);
   const msgN = (n) => T('stats.msgs', { n, num: nf(n) });
   const you = T('common.you');
@@ -151,16 +151,16 @@ function drawStats() {
   const pk = p && !covGone ? p : null;
 
   const records = [];
-  if (m.channels[0]) records.push(rec('🏆', T('stats.topChannel'), m.channels[0].name, `${msgN(m.channels[0].n)}${m.channel ? ` · ${T('stats.pctOfChannel', { pct: nf((m.channels[0].n / m.channel) * 100) })}` : ''}`));
-  if (m.topSenders[0]) records.push(rec('💬', T('stats.topSender'), m.topSenders[0].name, msgN(m.topSenders[0].n)));
-  m.farthest.forEach((f, i) => records.push(rec(i ? '📍' : '🛰️', i ? T('stats.rankDist', { i: i + 1 }) : T('stats.farthest'), f.name, `${T('stats.airline', { km: fmtKm(f.km) })}${hopsTxt(f.hops)}`,
+  if (m.channels[0]) records.push(rec('trophy', T('stats.topChannel'), m.channels[0].name, `${msgN(m.channels[0].n)}${m.channel ? ` · ${T('stats.pctOfChannel', { pct: nf((m.channels[0].n / m.channel) * 100) })}` : ''}`));
+  if (m.topSenders[0]) records.push(rec('chat', T('stats.topSender'), m.topSenders[0].name, msgN(m.topSenders[0].n)));
+  m.farthest.forEach((f, i) => records.push(rec(i ? 'pin' : 'radio', i ? T('stats.rankDist', { i: i + 1 }) : T('stats.farthest'), f.name, `${T('stats.airline', { km: fmtKm(f.km) })}${hopsTxt(f.hops)}`,
     mapBtn(focus({ title: `${f.name} → ${you}`, numberFrom: 0, points: [{ id: f.id, label: f.name, tag: '✉' }, { me: true, label: you }] })))));
-  if (m.longest) records.push(rec('🪜', T('stats.longest'), T('stats.hopsFrom', { n: m.longest.hops, name: m.longest.name }), `${multi ? `${bucketLabel(m.longest.ts, 'day')} · ` : ''}${m.longest.path.join(' › ')}`, mapBtn(focus({ title: T('map.pathFrom', { name: m.longest.name }), numberFrom: 0, points: m.longest.points }))));
-  if (pk?.farDirect) records.push(rec('📡', T('stats.farDirect'), pk.farDirect.name, `${T('stats.airline', { km: fmtKm(pk.farDirect.km) })}${pk.farDirect.snr != null ? ` · SNR ${nf(pk.farDirect.snr, 1)} dB` : ''} · ${PACKET_LABELS[pk.farDirect.type] || pk.farDirect.type}`,
+  if (m.longest) records.push(rec('hops', T('stats.longest'), T('stats.hopsFrom', { n: m.longest.hops, name: m.longest.name }), `${multi ? `${bucketLabel(m.longest.ts, 'day')} · ` : ''}${m.longest.path.join(' › ')}`, mapBtn(focus({ title: T('map.pathFrom', { name: m.longest.name }), numberFrom: 0, points: m.longest.points }))));
+  if (pk?.farDirect) records.push(rec('signal', T('stats.farDirect'), pk.farDirect.name, `${T('stats.airline', { km: fmtKm(pk.farDirect.km) })}${pk.farDirect.snr != null ? ` · SNR ${nf(pk.farDirect.snr, 1)} dB` : ''} · ${PACKET_LABELS[pk.farDirect.type] || pk.farDirect.type}`,
     mapBtn(focus({ title: T('stats.toYouDirect', { name: pk.farDirect.name }), numberFrom: 0, points: [{ id: pk.farDirect.id, label: pk.farDirect.name, tag: '📡' }, { me: true, label: you }] }))));
-  if (pk?.maxHops?.hops) records.push(rec('🔁', T('stats.maxHops'), T('common.hops', { n: pk.maxHops.hops }), `${PACKET_LABELS[pk.maxHops.type] || pk.maxHops.type} · ${pk.maxHops.path.join(' › ')}`, mapBtn(focus({ title: T('stats.packetOver', { n: pk.maxHops.hops }), numberFrom: 1, points: pk.maxHops.points }))));
-  if (m.busiest) records.push(rec('⏰', multi ? T('stats.busiestDay') : T('stats.busiestHour'), bucketLabel(m.busiest.start, unit), msgN(m.busiest.n)));
-  if (m.longText) records.push(rec('📝', T('stats.longText'), m.longText.name, T('stats.bytes', { n: m.longText.bytes, num: nf(m.longText.bytes) })));
+  if (pk?.maxHops?.hops) records.push(rec('repeat', T('stats.maxHops'), T('common.hops', { n: pk.maxHops.hops }), `${PACKET_LABELS[pk.maxHops.type] || pk.maxHops.type} · ${pk.maxHops.path.join(' › ')}`, mapBtn(focus({ title: T('stats.packetOver', { n: pk.maxHops.hops }), numberFrom: 1, points: pk.maxHops.points }))));
+  if (m.busiest) records.push(rec('clock', multi ? T('stats.busiestDay') : T('stats.busiestHour'), bucketLabel(m.busiest.start, unit), msgN(m.busiest.n)));
+  if (m.longText) records.push(rec('note', T('stats.longText'), m.longText.name, T('stats.bytes', { n: m.longText.bytes, num: nf(m.longText.bytes) })));
 
   const types = { 1: T('stats.typeCompanions'), 2: T('stats.typeRepeaters'), 3: T('stats.typeRooms'), 4: T('stats.typeSensors'), 0: T('stats.typeOther') };
   const hopHist = pk ? pk.hopHist.map((n, h) => ({ label: h === 0 ? T('stats.hop0') : h === 8 ? T('stats.hop8') : T('common.hops', { n: h }), n })).filter((r) => r.n) : [];
@@ -169,7 +169,7 @@ function drawStats() {
     m.skipped?.length || m.dmSkipped ? T('stats.warnSkipped', { list: [...(m.skipped || []), ...(m.dmSkipped ? [T('list.dms')] : [])].join(', ') }) : '',
     pk?.truncated ? T('stats.warnPkTrunc', { n: nf(100000) }) : '',
   ].filter(Boolean);
-  const covNote = p && cov ? `<div class="note">${covGone
+  const covNote = p && cov ? `<div class="note">${ic('box')}${covGone
     ? T('stats.covGone', { date: esc(covText) })
     : T('stats.covFrom', { date: esc(covText) })}
     <small>${T('stats.covSetting')}</small></div>` : '';

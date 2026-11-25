@@ -5,6 +5,7 @@ import { $, esc } from './core/util.js';
 import { load, S, save } from './core/state.js';
 import { api } from './core/api.js';
 import { ICON } from './core/icons.js';
+import { setTheme, themePref } from './core/theme.js';
 import { closeSheet, openSheet, toast } from './ui.js';
 import { conversations, myName, readHistoryIfFresh, saveRead, shareRead } from './data.js';
 import { go, render, scheduleRender } from './nav.js';
@@ -31,6 +32,10 @@ export function openDrawer() {
   const notifOn = S.notify && 'Notification' in window && Notification.permission === 'granted';
   const sources = S.sources || [];
   const mc = S.source?.protocol === 'meshcore';
+  // Was die Leiste unten schon hat (Chats, Kontakte, Karte, Repeater), steht nicht noch einmal im Menü
+  const nav = Boolean(document.querySelector('.bottom-nav'));
+  const theme = themePref();
+  const themeBtn = (k, icon) => `<button role="radio" aria-checked="${theme === k}" data-theme-set="${k}">${ICON[icon]}<span>${T(`theme.${k}`)}</span></button>`;
   root.innerHTML = `
     <div class="backdrop" data-close></div>
     <nav class="drawer" aria-label="${esc(T('drawer.aria'))}">
@@ -39,14 +44,14 @@ export function openDrawer() {
         <div><b>MeshLink Chat</b><div class="muted">${esc(myName() || T('drawer.noNode'))}</div></div>
       </div>
       <div class="drawer-section">${T('drawer.secChat')}</div>
-      <button class="drawer-item ${S.view === 'list' ? 'active' : ''}" data-act="chats">${ICON.chat}<span>${T('drawer.chats')}</span></button>
-      <button class="drawer-item ${S.view === 'contacts' ? 'active' : ''}" data-act="contacts">${ICON.people}<span>${T('list.contacts')}</span></button>
+      ${nav ? '' : `<button class="drawer-item ${S.view === 'list' ? 'active' : ''}" data-act="chats">${ICON.chat}<span>${T('drawer.chats')}</span></button>
+      <button class="drawer-item ${S.view === 'contacts' ? 'active' : ''}" data-act="contacts">${ICON.people}<span>${T('list.contacts')}</span></button>`}
       <button class="drawer-item ${S.view === 'mentions' ? 'active' : ''}" data-act="mentions"><span class="drawer-at">@</span><span>${T('men.title')}${unreadMentions() ? ` <small class="badge">${unreadMentions()}</small>` : ''}</span></button>
       ${mc ? `<button class="drawer-item ${S.view === 'rooms' ? 'active' : ''}" data-act="rooms">${ICON.home}<span>${T('rooms.title')}</span></button>` : ''}
       <button class="drawer-item ${S.view === 'search' ? 'active' : ''}" data-act="search">${ICON.search}<span>${T('drawer.search')}</span></button>
       <div class="drawer-section">${T('drawer.secNet')}</div>
-      <button class="drawer-item ${S.view === 'map' ? 'active' : ''}" data-act="map">${ICON.map}<span>${T('map.title')}</span></button>
-      ${mc ? `<button class="drawer-item ${S.view === 'repeaters' ? 'active' : ''}" data-act="repeaters">${ICON.radio}<span>${T('drawer.repeaters')}</span></button>` : ''}
+      ${nav ? '' : `<button class="drawer-item ${S.view === 'map' ? 'active' : ''}" data-act="map">${ICON.map}<span>${T('map.title')}</span></button>`}
+      ${mc && !nav ? `<button class="drawer-item ${S.view === 'repeaters' ? 'active' : ''}" data-act="repeaters">${ICON.radio}<span>${T('drawer.repeaters')}</span></button>` : ''}
       <button class="drawer-item ${S.view === 'stats' ? 'active' : ''}" data-act="stats">${ICON.chart}<span>${T('stats.title')}</span></button>
       ${drawerGroup('tools', T('drawer.tools'), S.view === 'packets', `
       ${mc ? `<button class="drawer-item ${S.view === 'packets' ? 'active' : ''}" data-act="packets">${ICON.pulse}<span>${T('drawer.packets')}</span></button>` : ''}
@@ -60,6 +65,7 @@ export function openDrawer() {
       <button class="drawer-item" data-act="own">${ICON.user}<span>${T('own.title')}</span></button>
       <button class="drawer-item" data-act="lang">${ICON.globe}<span>${T('drawer.language', { name: esc(langName(LANG)) })}</span></button>`)}
       <div class="drawer-spacer"></div>
+      <div class="theme-switch" role="radiogroup" aria-label="${esc(T('theme.aria'))}">${themeBtn('system', 'auto')}${themeBtn('light', 'sun')}${themeBtn('dark', 'moon')}</div>
       <button class="drawer-item" data-act="reload">${ICON.refresh}<span>${T('drawer.reload')}</span></button>
       <a class="drawer-version" href="${REPO_URL}" target="_blank" rel="noopener noreferrer" title="${esc(T('drawer.repo'))}">MeshLink Chat ${esc(S.version || '')} ↗</a>
       <button class="drawer-item danger" data-act="logout">${ICON.logout}<span>${T('drawer.logout')}</span></button>
@@ -67,6 +73,12 @@ export function openDrawer() {
   root.classList.add('open');
   root.onclick = async (e) => {
     if (e.target.closest('[data-close]')) { closeDrawer(); return; }
+    const th = e.target.closest('[data-theme-set]');
+    if (th) {
+      setTheme(th.dataset.themeSet);
+      root.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-checked', String(b === th)));
+      return;
+    }
     const g = e.target.closest('[data-group]');
     if (g) {
       const open = g.getAttribute('aria-expanded') !== 'true';

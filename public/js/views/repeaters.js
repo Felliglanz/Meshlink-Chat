@@ -4,7 +4,7 @@ import { T } from '../core/i18n.js';
 import { $, ago, dur, esc, fmtNum, nf } from '../core/util.js';
 import { load, S, save } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { closeSheet, openSheet, permHint, toast } from '../ui.js';
 import { myName } from '../data.js';
 import { go } from '../nav.js';
@@ -51,7 +51,7 @@ export function renderRepeaters() {
       <header class="bar">
         <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         <div class="bar-title"><h2>${T('rp.title')}</h2><div class="sub" id="rp-sub">${T('rp.sub')}</div></div>
-        <button class="bar-pill" id="rp-watch" title="${esc(T('watch.title'))}">${T('rp.watchBtn')}</button>
+        <button class="bar-pill" id="rp-watch" title="${esc(T('watch.title'))}">${ic('bell')}${T('rp.watchBtn')}</button>
       </header>
       <main class="scroll node-page" id="rp-body"><div class="empty">${T('common.loading')}</div></main>
     </div>`;
@@ -90,7 +90,7 @@ function drawRepeaters(r) {
     const lowBat = bat && S.watch.volts && bat.v < S.watch.volts;
     return `
     <section class="card rp-card" data-rp="${esc(x.id)}">
-      <div class="rp-head"><span class="lamp lamp-${lamp}" title="${esc({ ok: T('rp.lampOk'), warn: T('rp.lampWarn'), bad: T('rp.lampBad') }[lamp])}"></span><b>${x.type === 3 ? '🏠 ' : ''}${esc(x.name)}</b><small>${esc(ago(x.lastHeard))}</small></div>
+      <div class="rp-head"><span class="lamp lamp-${lamp}" title="${esc({ ok: T('rp.lampOk'), warn: T('rp.lampWarn'), bad: T('rp.lampBad') }[lamp])}"></span><b>${x.type === 3 ? ic('home') : ''}${esc(x.name)}</b><small>${esc(ago(x.lastHeard))}</small></div>
       <div class="stat-grid">
         <div class="${lowBat ? 'rp-low' : ''}"><small>${T('node.battery')}</small><b>${val(x.status, 'battery', (v) => `${nf(v, 2)} V`)}</b></div>
         <div><small>${T('node.noise')}</small><b>${val(x.status, 'noise', (v) => `${fmtNum(v)} dB`)}</b></div>
@@ -110,8 +110,8 @@ function drawRepeaters(r) {
 export function openAdvert() {
   openSheet(`
     <div class="sheet-title">${T('advert.title')}</div>
-    <button class="sheet-btn scope-opt" data-advert="zero_hop"><span>📍 Zero-Hop<small>${T('advert.zeroSub')}</small></span></button>
-    <button class="sheet-btn scope-opt" data-advert="flood"><span>📢 Flood<small>${T('advert.floodSub')}</small></span></button>
+    <button class="sheet-btn scope-opt" data-advert="zero_hop"><span>${ic('pin')}Zero-Hop<small>${T('advert.zeroSub')}</small></span></button>
+    <button class="sheet-btn scope-opt" data-advert="flood"><span>${ic('megaphone')}Flood<small>${T('advert.floodSub')}</small></span></button>
     <div class="hint">${T('advert.hint', { name: esc(myName() || '') })}</div>
     <button class="sheet-btn cancel" data-close>${T('common.cancel')}</button>`, async (e) => {
     const b = e.target.closest('[data-advert]');

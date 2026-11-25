@@ -1,14 +1,14 @@
 /* MeshLink Chat – Node-Seite: Status, Verlauf, Traceroute, Nachbarn, Reach. */
 
 import { LOC, T } from '../core/i18n.js';
-import { $, ago, dayLabel, dur, esc, fmtKm, fmtNum, nf } from '../core/util.js';
+import { $, ago, dayLabel, dur, esc, fmtKm, fmtNum, hm, nf } from '../core/util.js';
 import { load, S, save } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
-import { avatar, permHint } from '../ui.js';
+import { ICON, ic } from '../core/icons.js';
+import { permHint } from '../ui.js';
 import { node } from '../data.js';
 import { go } from '../nav.js';
-import { canDm, toggleFav, typeOf } from './contacts.js';
+import { canDm, favAvatar, toggleFav, typeOf } from './contacts.js';
 import { addDays, dayStart } from './stats.js';
 import { showOnMap, snrColor } from '../map/map.js';
 import { traceSnr } from '../map/trace.js';
@@ -60,8 +60,7 @@ export function renderNode() {
     <div class="view view-node">
       <header class="bar">
         <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
-        ${avatar('dm:' + id, 'small')}
-        <div class="bar-title"><h2 id="node-title"></h2><div class="sub" id="node-sub"></div></div>
+        <div class="bar-title"><h2 id="node-title"></h2></div>
       </header>
       <main class="scroll node-page" id="node-body"></main>
     </div>`;
@@ -82,7 +81,6 @@ function renderNodeBody() {
   const n = node(ni.id) || { id: ni.id };
   const t = typeOf(n);
   $('#node-title').textContent = n.long || n.short || n.id;
-  $('#node-sub').textContent = `${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}`;
   const row = (k, v) => (v == null || v === '' ? '' : `<div class="info-row"><span>${k}</span><b>${esc(v)}</b></div>`);
   const kind = nodeKind(n);
   const series = ni.series || {};
@@ -93,18 +91,29 @@ function renderNodeBody() {
     : Object.keys(series).filter((k) => !k.startsWith('status_') && !/^(latitude|longitude|altitude)/.test(k)).map((k) => [k, k.replace(/_/g, ' '), series[k].unit || '']);
   const msg = (k) => (ni.msg[k] ? `<div class="node-msg ${ni.msg[k].err ? 'err' : ''}">${esc(ni.msg[k].text)}</div>` : '');
   const traces = ni.traces || [];
+  const mc = S.source?.protocol === 'meshcore';
+  // Feste Aktionen oben: rundes Symbol mit Beschriftung darunter
+  const act = (na, icon, label, on = false, off = false) => `<button class="hero-act ${on ? 'on' : ''}" data-na="${na}" ${off ? 'disabled' : ''}><i>${ICON[icon]}</i><span>${esc(label)}</span></button>`;
   $('#node-body').innerHTML = `
-    <section class="card">
-      ${row(T('node.lastHeard'), n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString(LOC)})` : null)}
-      ${row('Hops', n.hops)}
-      ${row('SNR', n.snr)}
-      ${row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
-      <div class="node-actions">
-        ${canDm(n) ? `<button class="pill" data-na="dm">${T('node.msgBtn')}</button>` : ''}
-        <button class="pill" data-na="map">${T('node.mapBtn')}</button>
-        ${S.source?.protocol === 'meshcore' ? `<button class="pill" data-na="fav">${n.fav ? '★' : '☆'} ${T('fav.label')}</button>` : ''}
-        ${canAdmin(n) ? `<button class="pill accent" data-na="admin">${T('adm.open')}</button>` : ''}
+    <section class="card node-hero">
+      ${favAvatar(n, 'big')}
+      <h3>${esc(n.long || n.short || n.id)}</h3>
+      <div class="node-hero-sub">${t ? `${ic(t.icon)}${esc(t.label)}` : 'Node'}${n.lastHeard ? ` · ${esc(T('chat.lastHeard', { ago: ago(n.lastHeard) }))}` : ''}</div>
+      <div class="hero-acts">
+        ${canDm(n) ? act('dm', 'chat', T('node.msgBtn')) : ''}
+        ${act('map', 'map', T('node.mapBtn'))}
+        ${mc ? act('fav', n.fav ? 'star' : 'starLine', T('fav.label'), n.fav) : ''}
+        ${mc ? act('ping', 'signal', ni.busy === 'ping' ? T('node.pinging') : T('node.ping'), false, ni.busy) : ''}
+        ${canAdmin(n) ? act('admin', 'wrench', T('adm.open')) : ''}
       </div>
+      ${ni.connHero ? msg('conn') : ''}
+    </section>
+    <section class="card info-card">
+      ${row(T('node.lastHeard'), n.lastHeard ? `${dayLabel(n.lastHeard)}, ${hm(n.lastHeard)}` : null)}
+      ${row(T('node.heardVia'), n.hops == null ? null : n.hops ? T('common.hops', { n: n.hops }) : T('common.direct'))}
+      ${mc && ni.contact?.known ? row(T('node.dmRoute'), ni.contact.flood ? T('contacts.flood') : ni.contact.hops.length ? T('common.hops', { n: ni.contact.hops.length }) : T('common.direct')) : ''}
+      ${row('SNR', n.snr)}
+      ${mc && n.id.startsWith('mc:') ? row(T('contact.key'), `${n.id.slice(3, 11)}…${n.id.slice(-8)}`) : row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
     </section>
     ${kind ? `
     <section class="card">
@@ -140,11 +149,11 @@ function renderNodeBody() {
       <div class="card-head"><b>${T('node.connection')}</b></div>
       <div class="info-row"><span>${T('node.storedPath')}</span><b>${ni.contact == null ? T('common.loading') : !ni.contact.known ? T('node.noContact') : ni.contact.flood ? T('node.noPathFlood') : ni.contact.hops.length ? esc(ni.contact.hops.map((h) => h.name || `#${h.hash}`).join(' › ')) : T('common.direct')}</b></div>
       <div class="node-actions">
-        <button class="pill" data-na="ping" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'ping' ? T('node.pinging') : T('node.ping')}</button>
-        <button class="pill" data-na="reset" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'reset' ? T('node.resetting') : T('node.reset')}</button>
-        <button class="pill" data-na="discover" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'discover' ? T('node.discovering') : T('node.discover')}</button>
+        <button class="pill" data-na="ping" ${ni.busy ? 'disabled' : ''}>${ic('signal')}${ni.busy === 'ping' ? T('node.pinging') : T('node.ping')}</button>
+        <button class="pill" data-na="reset" ${ni.busy ? 'disabled' : ''}>${ic('undo')}${ni.busy === 'reset' ? T('node.resetting') : T('node.reset')}</button>
+        <button class="pill" data-na="discover" ${ni.busy ? 'disabled' : ''}>${ic('compass')}${ni.busy === 'discover' ? T('node.discovering') : T('node.discover')}</button>
       </div>
-      ${msg('conn')}
+      ${ni.connHero ? '' : msg('conn')}
       <div class="hint">${T('node.connHint')}</div>
     </section>
     ${n.type === 2 || n.type === 3 ? `
@@ -152,9 +161,9 @@ function renderNodeBody() {
       <div class="card-head"><b>${T('node.nbTitle')}</b>${ni.nb?.ts ? `<small>${T('node.asOf', { ago: esc(ago(ni.nb.ts)) })}</small>` : ''}</div>
       ${ni.nb == null ? `<div class="muted">${T('common.loading')}</div>` : ni.nb.neighbours.length ? ni.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : `<div class="muted">${T('node.nbNone')}</div>`}
       <div class="node-actions">
-        <button class="pill" data-na="nb" ${ni.busy ? 'disabled' : ''}>${ni.busy === 'nb' ? T('node.querying') : T('node.nbQuery')}</button>
+        <button class="pill" data-na="nb" ${ni.busy ? 'disabled' : ''}>${ic('radio')}${ni.busy === 'nb' ? T('node.querying') : T('node.nbQuery')}</button>
         ${nbMore(ni.nb) ? `<button class="pill" data-na="nbmore" ${ni.busy ? 'disabled' : ''}>${nbMoreLabel(ni.nb)}</button>` : ''}
-        ${ni.nb?.neighbours?.length ? `<button class="pill" data-na="nbmap">${T('node.mapBtn')}</button>` : ''}
+        ${ni.nb?.neighbours?.length ? `<button class="pill" data-na="nbmap">${ic('map')}${T('node.mapBtn')}</button>` : ''}
       </div>
       ${msg('nb')}
       <div class="hint">${T('node.nbHint')}</div>
@@ -228,7 +237,7 @@ function reachCard(ni) {
       <div class="card-head"><b>${T('reach.title')}</b><small>${T('reach.exp')}</small></div>
       ${body}
       <div class="node-actions">
-        ${r?.packets ? `<button class="pill" data-na="reachmap">${T('node.mapBtn')}</button>` : ''}
+        ${r?.packets ? `<button class="pill" data-na="reachmap">${ic('map')}${T('node.mapBtn')}</button>` : ''}
         <button class="pill" data-na="reach" ${r == null ? 'disabled' : ''}>${T('reach.redo')}</button>
       </div>
       <div class="hint">${T('reach.hint')}</div>
@@ -364,7 +373,9 @@ async function onNodeClick(e) {
   if (act === 'admin') { go('admin', ni.id); return; }
   const n = node(ni.id) || { id: ni.id };
   const busy = async (key, fn) => {
-    ni.busy = key; delete ni.msg[key === 'nb' ? 'nb' : 'conn']; renderNodeBody();
+    ni.busy = key; delete ni.msg[key === 'nb' ? 'nb' : 'conn'];
+    if (key !== 'nb') ni.connHero = key === 'ping' && Boolean(b.closest('.hero-act')); // Ping von oben: Ergebnis auch oben zeigen
+    renderNodeBody();
     try { await fn(); } catch (err) {
       ni.msg[key === 'nb' ? 'nb' : 'conn'] = { err: true, text: err.status === 504 ? T('node.pingNoAnswer') : err.code === 'MESHCORE_PING_FAILED' || err.status === 409 ? T('node.notPossible', { msg: err.message }) : permHint(err, 'nodes:write') };
     }

@@ -4,7 +4,7 @@ import { LOC, T } from '../core/i18n.js';
 import { $, esc, nf, pad } from '../core/util.js';
 import { load, S, save } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { closeSheet, openSheet, permHint, toast } from '../ui.js';
 import { node } from '../data.js';
 import { showOnMap } from './map.js';
@@ -194,7 +194,7 @@ export function renderPackets() {
       <header class="bar">
         <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         <div class="bar-title"><h2>${T('pk.title')}</h2><div class="sub" id="pk-sub">${T('common.loading')}</div></div>
-        <button class="bar-pill ${S.pk.live ? 'on' : ''}" id="pk-live" title="${esc(T('pk.liveTitle'))}">⚡ Live</button>
+        <button class="bar-pill ${S.pk.live ? 'on' : ''}" id="pk-live" title="${esc(T('pk.liveTitle'))}">${ic('bolt')}Live</button>
         <button class="icon-btn" id="pk-refresh" aria-label="${esc(T('common.refresh'))}">${ICON.refresh}</button>
       </header>
       <div class="segments" id="pk-types">${PK_TYPES.map(([v, l]) => `<button class="seg ${f.type === v ? 'active' : ''}" data-type="${v ?? ''}">${v != null ? `<i class="pk-dot" style="background:${liveKind(PK_TYPE_NAME[v])[0]}"></i>` : ''}${esc(l)}</button>`).join('')}</div>
@@ -316,7 +316,7 @@ function pkRow(p) {
   const hops = p.hops ?? p.path.length;
   const copies = pkCopies(p).length;
   let line2 = '';
-  if (p.text) line2 = `💬 ${esc(p.text)}`;
+  if (p.text) line2 = `${ic('chat')}${esc(p.text)}`;
   else if (p.path.length && p.type !== 9) line2 = p.path.map((h) => esc(pkHop(h))).join(' › ');
   else if (p.type === 9 && p.path.length) line2 = esc(T('pk.traceWith', { n: p.path.length }));
   else line2 = hops === 0 ? `<span class="muted">${T('pk.heardDirect')}</span>` : '';
@@ -373,14 +373,14 @@ function openPacket(id) {
       ${row(T('pk.rSize'), d ? esc(T('pk.sizeFull', { total: d.total, payload: d.total - d.payloadAt })) : p.size != null ? esc(T('pk.sizePayload', { n: p.size })) : '')}
       ${copies.length ? `<div class="pk-sec">${T('pk.copiesMore', { n: copies.length })}</div>${copies.slice(0, 8).map((c) => `<button class="pk-copy" data-pk-open="${esc(c.id)}"><span>${esc(new Date(c.t).toLocaleTimeString(LOC))}</span><b>${c.path.length ? c.path.map((h) => esc(pkHop(h))).join(' › ') : T('common.direct')}</b><small>${c.snr != null ? `${nf(c.snr, 1)} dB` : ''}</small></button>`).join('')}` : ''}
       <div class="pk-actions">
-        ${p.type !== 9 && p.path.length ? `<button class="route-map" data-pk-act="map">${T('pk.mapBtn')}</button>` : ''}
+        ${p.type !== 9 && p.path.length ? `<button class="route-map" data-pk-act="map">${ic('map')}${T('pk.mapBtn')}</button>` : ''}
         ${p.path.length && p.type !== 9 ? `<button class="route-map" data-pk-act="via">${T('pk.onlyVia', { name: esc(pkHop(p.path[p.path.length - 1])) })}</button>` : ''}
         ${p.from ? `<button class="route-map" data-pk-act="from">${T('pk.onlyFrom', { name: esc(from || T('pk.thisSender')) })}</button>` : ''}
       </div>
       ${d ? `<div class="pk-sec">${T('pk.breakdown')} <small>${T('pk.breakdownSub', { n: d.total })}</small></div>
         <div class="pk-hex" id="pk-hex">${hex}</div>
         <div class="pk-fields">${table}</div>
-        ${d.errors.length ? `<div class="lp-note">⚠ ${esc(d.errors.join(' · '))}</div>` : ''}
+        ${d.errors.length ? `<div class="lp-note">${ic('warn')}${esc(d.errors.join(' · '))}</div>` : ''}
         ${[2, 0, 1, 5, 6, 7, 8].includes(d.type) ? `<div class="lp-note">${T('pk.e2e')}</div>` : ''}
         <button class="route-map" data-pk-act="copy">${T('pk.copyRaw')}</button>`
       : `<div class="lp-note">${T('pk.noRaw')}</div>`}

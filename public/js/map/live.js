@@ -4,6 +4,7 @@ import { LOC, T } from '../core/i18n.js';
 import { $, ago, distKm, esc, fmtKm, nf } from '../core/util.js';
 import { load, S } from '../core/state.js';
 import { api } from '../core/api.js';
+import { ic } from '../core/icons.js';
 import { node } from '../data.js';
 import { mapPoint, mapScale } from './map.js';
 
@@ -216,5 +217,5 @@ function drawLiveLegend() {
   const n = S.live.recent.length;
   const seen = [...new Set(S.live.recent.map((x) => liveKind(x.kind)[1]))];
   const kinds = Object.values(LIVE_KINDS).filter(([, l], i, a) => a.findIndex(([, l2]) => l2 === l) === i);
-  el.innerHTML = `<span class="live-dot">⚡ <b>Live</b>&nbsp;${S.live.err ? `<em class="tb-err">${esc(S.live.err)}</em>` : `${T('live.perMin', { n, num: nf(n) })}${S.live.noPos ? ` · ${T('live.noPosCount', { n: nf(S.live.noPos) })}` : ''}`}</span>${kinds.map(([c, l]) => `<span class="${seen.includes(l) ? '' : 'dim'}"><b class="lg-line" style="border-color:${c}"></b>${esc(l)}</span>`).join('')}`;
+  el.innerHTML = `<span class="live-dot">${ic('bolt')}<b>Live</b>&nbsp;${S.live.err ? `<em class="tb-err">${esc(S.live.err)}</em>` : `${T('live.perMin', { n, num: nf(n) })}${S.live.noPos ? ` · ${T('live.noPosCount', { n: nf(S.live.noPos) })}` : ''}`}</span>${kinds.map(([c, l]) => `<span class="${seen.includes(l) ? '' : 'dim'}"><b class="lg-line" style="border-color:${c}"></b>${esc(l)}</span>`).join('')}`;
 }

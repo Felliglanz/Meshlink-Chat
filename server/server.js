@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -1710,7 +1710,7 @@ async function readBody(req, limit = 16384) {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
-  '.json': 'application/json; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2',
 };
 
 // Versionskennung aus dem Inhalt der App-Dateien. Ändert sich bei jedem Deploy mit Codeänderung.
@@ -1741,6 +1741,7 @@ function serveStatic(req, res, url) {
         .replace('<html lang="de">', `<html lang="${lang.lang}">`)
         .replace('<script type="application/json" id="i18n">{}</script>', () => `<script type="application/json" id="i18n">${JSON.stringify(lang).replace(/</g, '\\u003c')}</script>`)
         .replace('src="/js/main.js"', `src="/js/main.js?v=${APP_VERSION}"`)
+        .replace('src="/js/theme.js"', `src="/js/theme.js?v=${APP_VERSION}"`)
         .replace('href="/style.css"', `href="/style.css?v=${APP_VERSION}"`));
     } else if (ext === '.js' && rel.startsWith('/js/')) {
       // Module untereinander mit derselben Version verlinken: nach einem Deploy lädt der Browser alle neu,
@@ -1755,7 +1756,7 @@ function serveStatic(req, res, url) {
     const versioned = url.searchParams.get('v') === APP_VERSION;
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : ext === '.png' || ext === '.svg' ? 'public, max-age=86400' : 'no-cache',
+      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : ext === '.png' || ext === '.svg' || ext === '.woff2' ? 'public, max-age=86400' : 'no-cache',
       ...(rel === '/index.html' || rel === '/manifest.webmanifest' ? { Vary: 'Cookie, Accept-Language' } : {}),
       ...SEC_HEADERS,
     });

@@ -3,7 +3,7 @@
 import { T } from './core/i18n.js';
 import { esc } from './core/util.js';
 import { load, S, save } from './core/state.js';
-import { ICON } from './core/icons.js';
+import { ICON, ic } from './core/icons.js';
 import { closeSheet, openSheet, toast } from './ui.js';
 import { convTitle } from './data.js';
 import { scheduleRender } from './nav.js';
@@ -21,9 +21,9 @@ export function openConvPrefs(key) {
   const opt = (val, label, sub) => `<button class="sheet-btn scope-opt ${cur === val ? 'active' : ''}" data-pref="${val || 'std'}"><span>${label}<small>${sub}</small></span>${cur === val ? `<i>${ICON.check}</i>` : ''}</button>`;
   openSheet(`
     <div class="sheet-title">${T('prefs.title', { name: esc(convTitle(key)) })}</div>
-    ${opt(null, T('prefs.std'), isCh ? T('prefs.stdChannel') : T('prefs.stdDm'))}
-    ${isCh ? opt('all', T('prefs.all'), T('prefs.allSub')) : ''}
-    ${opt('mute', T('prefs.mute'), T('prefs.muteSub'))}
+    ${opt(null, `${ic('bell')}${T('prefs.std')}`, isCh ? T('prefs.stdChannel') : T('prefs.stdDm'))}
+    ${isCh ? opt('all', `${ic('megaphone')}${T('prefs.all')}`, T('prefs.allSub')) : ''}
+    ${opt('mute', `${ic('mute')}${T('prefs.mute')}`, T('prefs.muteSub'))}
     <div class="hint">${T('common.thisDeviceOnly')}${pushOn ? '' : ` ${T('prefs.pushOff')}`}</div>
     <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     const b = e.target.closest('[data-pref]');

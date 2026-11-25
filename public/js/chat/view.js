@@ -3,10 +3,10 @@
 import { T } from '../core/i18n.js';
 import { $, ago, dayLabel, esc, hm, hue } from '../core/util.js';
 import { S } from '../core/state.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { avatar, stateIcon } from '../ui.js';
 import { convOf, convTitle, isMine, isOwnOther, markRead, node, nodeName, renderText, targetOf } from '../data.js';
-import { effectiveScope, openScopePicker, scopeLabel } from '../scope.js';
+import { effectiveScope, openScopePicker, scopeHtml } from '../scope.js';
 import { convPref, openConvPrefs } from '../prefs.js';
 import { heardBadge, heardList, resendButton, scopeTag } from './meta.js';
 import { statusLine } from '../nav.js';
@@ -32,8 +32,8 @@ export function renderChat() {
           <div class="reply-bar hidden" id="reply-bar"></div>
           <form class="composer" id="composer">
             ${key.startsWith('ch:') ? `<button type="button" class="scope-chip hidden" id="scope-chip" aria-label="${esc(T('chat.scopePick'))}"></button>` : ''}
-            <button type="button" class="emoji-btn" id="emoji-btn" aria-label="${esc(T('chat.emoji'))}" title="${esc(T('chat.emoji'))}">😊</button>
-            <button type="button" class="loc-btn" id="loc-btn" aria-label="${esc(T('chat.loc'))}" title="${esc(T('chat.locTitle'))}">📍</button>
+            <button type="button" class="emoji-btn" id="emoji-btn" aria-label="${esc(T('chat.emoji'))}" title="${esc(T('chat.emoji'))}">${ICON.smile}</button>
+            <button type="button" class="loc-btn" id="loc-btn" aria-label="${esc(T('chat.loc'))}" title="${esc(T('chat.locTitle'))}">${ICON.pin}</button>
             <textarea id="input" rows="1" placeholder="${esc(T('chat.placeholder'))}" enterkeyhint="send" autocomplete="off"></textarea>
             <span class="count" id="count"></span>
             <button class="send" id="send" type="submit" aria-label="${esc(T('common.send'))}">${ICON.send}</button>
@@ -61,7 +61,7 @@ export function renderChat() {
   }
   $('#chat-title').textContent = convTitle(key);
   const pref = convPref(key);
-  $('#notif-btn').innerHTML = pref === 'mute' ? '<span>🔕</span>' : pref === 'all' ? '<span>📣</span>' : ICON.bell;
+  $('#notif-btn').innerHTML = pref === 'mute' ? ICON.mute : pref === 'all' ? ICON.megaphone : ICON.bell;
   if (key.startsWith('dm:')) {
     const n = node(key.slice(3));
     const bits = [n?.short ? esc(n.short) : null, T('chat.lastHeard', { ago: ago(n?.lastHeard) }), n?.hops != null ? T('common.hops', { n: n.hops }) : null];
@@ -69,12 +69,12 @@ export function renderChat() {
   } else {
     const idx = Number(key.slice(3));
     $('#chat-sub').innerHTML = S.connected
-      ? `${T('channel.n', { i: esc(key.slice(3)) })}${S.source?.protocol === 'meshcore' ? ` · <span class="scope-sub ${effectiveScope(idx).from === 'own' ? 'own' : ''}">${esc(scopeLabel(idx, true))}</span>` : ` · ${esc(S.source?.name || '')}`}`
+      ? `${T('channel.n', { i: esc(key.slice(3)) })}${S.source?.protocol === 'meshcore' ? ` · <span class="scope-sub ${effectiveScope(idx).from === 'own' ? 'own' : ''}">${scopeHtml(idx, true)}</span>` : ` · ${esc(S.source?.name || '')}`}`
       : statusLine();
     const chip = $('#scope-chip');
     if (chip) {
       chip.classList.toggle('hidden', S.source?.protocol !== 'meshcore');
-      chip.textContent = scopeLabel(idx);
+      chip.innerHTML = scopeHtml(idx);
       chip.classList.toggle('own', effectiveScope(idx).from === 'own');
     }
   }
@@ -104,6 +104,9 @@ export function renderMessages() {
   let prev = null;
   const isNew = (m) => m.ts > S.unreadSince && !isMine(m) && !isOwnOther(m);
   const firstNew = S.unreadSince ? list.find(isNew) : null;
+  // Neu dazugekommene Nachrichten blenden kurz ein (nicht beim Öffnen; eigene erst als Entwurf, nicht beim Austausch der ID)
+  if (S.firstChatRender || !S.shownIds) S.shownIds = new Set();
+  const enter = (m) => !S.firstChatRender && !S.shownIds.has(m.id) && (!isMine(m) || m.id.startsWith('tmp-'));
   const newCount = firstNew ? list.filter(isNew).length : 0;
   for (const m of list) {
     const day = dayLabel(m.ts);
@@ -121,7 +124,7 @@ export function renderMessages() {
       chips.set(r.emoji, c);
     }
     html += `
-      <div class="row ${mine ? 'mine' : 'theirs'} ${other ? 'own-other' : ''} ${grouped ? 'grouped' : ''}" data-id="${esc(m.id)}">
+      <div class="row ${mine ? 'mine' : 'theirs'} ${other ? 'own-other' : ''} ${grouped ? 'grouped' : ''} ${enter(m) ? 'enter' : ''}" data-id="${esc(m.id)}">
         ${!mine && isCh ? (grouped ? '<div class="avatar-spacer"></div>' : avatar('dm:' + m.from, 'tiny')) : ''}
         <div class="bubble-col">
           <div class="bubble">
@@ -139,6 +142,7 @@ export function renderMessages() {
   }
   if (!list.length) html = `<div class="empty chat-empty">${T('chat.empty')}</div>`;
   el.innerHTML = html;
+  S.shownIds = new Set(list.map((m) => m.id));
   if (S.jumpTo) {
     const row = el.querySelector(`[data-id="${CSS.escape(S.jumpTo)}"]`);
     S.jumpTo = null;

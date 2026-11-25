@@ -4,7 +4,7 @@ import { T } from '../core/i18n.js';
 import { $, ago, enc, esc, hm, hue } from '../core/util.js';
 import { S } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { avatar, permHint, toast } from '../ui.js';
 import { node, renderText } from '../data.js';
 import { go } from '../nav.js';
@@ -32,7 +32,7 @@ export function renderRooms() {
         <button class="conv" data-room="${esc(x.id)}">
           ${avatar('dm:' + x.id)}
           <div class="conv-body">
-            <div class="conv-top"><span class="conv-title">🏠 ${esc(x.name)}</span><span class="conv-time">${x.loggedIn ? '🔓' : '🔒'}</span></div>
+            <div class="conv-top"><span class="conv-title">${esc(x.name)}</span><span class="conv-time">${ic(x.loggedIn ? 'unlock' : 'lock')}</span></div>
             <div class="conv-bottom"><span class="conv-preview muted">${x.loggedIn ? T('rooms.in') : T('rooms.out')} · ${T('chat.lastHeard', { ago: esc(ago(x.lastSeen)) })}</span></div>
           </div>
         </button>`).join('') || `<div class="empty">${T('rooms.none')}</div>`;
@@ -51,7 +51,7 @@ export function renderRoom() {
       <header class="bar">
         <button class="icon-btn" id="back" aria-label="${esc(T('common.back'))}">${ICON.back}</button>
         ${avatar('dm:' + id, 'small')}
-        <div class="bar-title"><h2>🏠 ${esc(n?.long || n?.short || T('type.room'))}</h2><div class="sub" id="room-sub">${T('common.loading')}</div></div>
+        <div class="bar-title"><h2>${esc(n?.long || n?.short || T('type.room'))}</h2><div class="sub" id="room-sub">${T('common.loading')}</div></div>
       </header>
       <main class="scroll msgs" id="room-posts"></main>
       <footer class="composer-wrap" id="room-foot"></footer>
@@ -84,7 +84,7 @@ function drawRoom(first) {
   const el = $('#room-posts');
   if (!el) return;
   const stick = first || nearBottom(el);
-  $('#room-sub').textContent = rm.loggedIn ? T('rooms.subIn') : T('rooms.subOut');
+  $('#room-sub').innerHTML = rm.loggedIn ? `${ic('unlock')}${T('rooms.subIn')}` : `${ic('lock')}${T('rooms.subOut')}`;
   el.innerHTML = (rm.posts || []).map((p) => `
     <div class="row ${p.mine ? 'mine' : 'theirs'}"><div class="bubble-col"><div class="bubble">
       ${!p.mine && p.name ? `<div class="sender" style="--h:${hue(p.name)}">${esc(p.name)}</div>` : ''}

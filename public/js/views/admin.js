@@ -4,7 +4,7 @@ import { T } from '../core/i18n.js';
 import { $, ago, dur, esc } from '../core/util.js';
 import { S } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { avatar, closeSheet, openSheet, permHint, toast } from '../ui.js';
 import { node } from '../data.js';
 import { showOnMap, snrColor } from '../map/map.js';
@@ -180,7 +180,7 @@ function renderAdminBody() {
             : `<button class="pill" data-adm-tool="${t.key}" ${a.busy ? 'disabled' : ''}>${busy(`t:${t.key}`) ? '…' : t.input ? T('adm.save') : t.danger ? T('adm.run') : t.fetch ? T('adm.fetch') : T('adm.send')}</button>`}
           ${out(`t:${t.key}`)}
           ${t.nb && a.nb ? `<div class="adm-nb">${a.nb.neighbours.length ? a.nb.neighbours.map((x) => `<div class="heard-row"><span class="heard-name">${esc(x.name || `#${x.hash}`)}</span><span class="heard-snr" style="color:${snrColor(x.snr)}">${x.snr != null ? `SNR ${esc(x.snr)}` : ''}</span><span class="heard-snr">${x.secs != null ? esc(dur(x.secs)) : ''}</span></div>`).join('') : `<div class="muted">${T('node.nbEmpty')}</div>`}
-            <div class="node-actions">${nbMore(a.nb) ? `<button class="pill" data-adm="nbmore" ${a.busy ? 'disabled' : ''}>${busy('t:neighbors') ? '…' : nbMoreLabel(a.nb)}</button>` : ''}${a.nb.neighbours.length ? `<button class="pill" data-adm="nbmap">${T('node.mapBtn')} (${a.nb.neighbours.length})</button>` : ''}</div></div>` : ''}
+            <div class="node-actions">${nbMore(a.nb) ? `<button class="pill" data-adm="nbmore" ${a.busy ? 'disabled' : ''}>${busy('t:neighbors') ? '…' : nbMoreLabel(a.nb)}</button>` : ''}${a.nb.neighbours.length ? `<button class="pill" data-adm="nbmap">${ic('map')}${T('node.mapBtn')} (${a.nb.neighbours.length})</button>` : ''}</div></div>` : ''}
         </div>`;
       html = `${head}
         <div class="adm-note">${T('adm.airHint')}</div>

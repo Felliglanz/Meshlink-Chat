@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.7.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.8.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -59,6 +59,9 @@ tells you when a favourite repeater goes silent or its battery runs low.
 🌍 **English and German.** The app follows the browser language and can be switched per device
 (☰ → Settings → Language). Push notifications arrive in each device's language. More languages are a single file,
 see [Adding a language](#adding-a-language).
+
+🌗 **Light, dark or system.** A light, calm design with its own line icons and the bundled Inter typeface.
+Switch the colour scheme per device right in the ☰ menu.
 
 <p align="center">
   <img src="docs/screenshots/chats.png" width="190" alt="Chat list">
@@ -218,6 +221,7 @@ if something is broken.
 
 - **Bottom bar:** Chats · Contacts · Map · Repeaters (MeshCore only) · More (= the ☰ menu). The number on “Chats” counts
   the chats with unread messages. It is hidden while a chat is open; on a PC it sits below the chat list.
+  The ☰ menu only lists what the bar doesn't have, plus the colour scheme switch **System · Light · Dark** (per device).
 - **Search and filter:** the search line above the list searches chat names (message text: ☰ → Search messages).
   Below it the filters **All · Unread · ★ · DMs · Channels**; ★ shows DMs with favourite contacts. Each device remembers
   its filter.
@@ -226,14 +230,15 @@ if something is broken.
 - **Channel icon (MeshCore):** **#** = hashtag channel (key derived from the name, anyone with the name can read along),
   **lock** = private channel (own key), **globe** = Public. The server tells them apart by the key from MeshMonitor.
   The key itself never reaches the app.
+- **Swipe a message to the right** to reply (Android vibrates briefly when letting go will reply).
 - **Long press** (desktop: right click) on a message: reaction, reply, copy, DM, details.
   **Double tap**: ❤️. **Tap a reaction**: send the same reaction. Reactions go into the mesh and cannot be taken
   back (with MeshCore, "send reactions" must be allowed for the source in MeshMonitor).
-- **📡 n** under your own channel messages shows how many repeaters were heard forwarding it. Tap it to see them
+- **The antenna symbol with a number** under your own channel messages shows how many repeaters were heard forwarding it. Tap it to see them
   with their position in the path and SNR. An SNR value only exists for the station your device heard directly.
   The others only appear in the path. Echoes are matched by the packet's encrypted bytes, which are identical in every
   copy. So echoes after a resend count too, and someone sending the same text at the same time is not counted.
-- **Your own DM:** 📡 appears once MeshMonitor has heard repeater echoes. After delivery (✓✓) the details show the
+- **Your own DM:** the antenna symbol appears once MeshMonitor has heard repeater echoes. After delivery (✓✓) the details show the
   **path to the recipient** that the recipient reports back with the acknowledgement. Long-pressing your own DM
   offers **reset path** and, as long as it isn't delivered, **resend by flood**.
 - **Received:** `↳ 2 hops · 1B` shows the path to you and the hash size (1/2/3 bytes per repeater ID).
@@ -326,7 +331,7 @@ if something is broken.
 <summary><b>🔧 Repeater admin</b></summary>
 
 Off until you set **`REMOTE_ADMIN=1`** in the `.env` and restart the service (`systemctl restart meshlink-chat`).
-Then the node page of a repeater or room server shows **🔧 Manage**. Everything runs through MeshMonitor; the token
+Then the node page of a repeater or room server shows **Manage** (wrench). Everything runs through MeshMonitor; the token
 needs `remote_admin` read + write, and the repeater must be saved as a contact on your device.
 
 - **Log in** with the repeater's admin password. MeshLink Chat does not store it. If you like, **MeshMonitor**
@@ -411,6 +416,7 @@ Texts never go straight into the code: in the app use `T('area.name', { … })`,
 | `server/push.js` | Web push without a library (VAPID derived from `SESSION_SECRET`) |
 | `server/i18n.js` | loads the language files, picks the language per device (cookie `ml_lang`, otherwise browser language) |
 | `public/` | the PWA: `index.html`, `style.css`, `sw.js`, manifest, icons, Leaflet |
+| `public/fonts/` | Inter typeface (SIL Open Font License, `OFL.txt`) |
 | `public/js/` | the app as ES modules without a build step: entry `main.js`, basics in `core/` (language, state, API, helpers), views in `views/`, chat in `chat/`, map and packet analyzer in `map/` |
 | `public/i18n/` | language files, one per language |
 | `install.sh` / `uninstall.sh` | set up, update, remove on the server |
@@ -421,5 +427,6 @@ Texts never go straight into the code: in the app use `T('area.name', { … })`,
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Includes [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`).
+MIT, see [LICENSE](LICENSE). Includes [Leaflet](https://leafletjs.com) (BSD-2-Clause, `public/vendor/leaflet/LICENSE`)
+and the [Inter](https://rsms.me/inter/) typeface (SIL Open Font License 1.1, `public/fonts/OFL.txt`).
 MeshLink Chat is an independent project and is not affiliated with MeshMonitor, MeshCore or Meshtastic.

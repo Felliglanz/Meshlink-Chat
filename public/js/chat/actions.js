@@ -14,10 +14,59 @@ import { showOnMap } from '../map/map.js';
 
 // ------------------------------------------------------------------ Gesten & Aktionsmenü
 
+// Antworten: bei MeshCore als @Erwähnung vorne im Eingabefeld, sonst mit Antwortzeile (Zitat)
+function startReply(m) {
+  if (S.source?.protocol === 'meshcore') {
+    const ta = $('#input');
+    if (!isMine(m)) { ta.value = `@[${nodeName(m.from)}] ${ta.value}`; ta.dispatchEvent(new Event('input')); }
+  } else { S.replyTo = m.id; renderReplyBar(); }
+  $('#input').focus();
+}
+// Wischen geht nur, wo Antworten etwas bewirkt (bei MeshCore nicht auf eigene Nachrichten)
+const canSwipeReply = (m) => m && !m.id.startsWith('tmp-') && !(S.source?.protocol === 'meshcore' && isMine(m));
+const SWIPE_START = 14; const SWIPE_ARM = 56; const SWIPE_MAX = 84;
+
 export function setupMessageGestures() {
   const el = $('#msgs');
   let timer = null; let start = null;
   const cancel = () => { clearTimeout(timer); timer = null; };
+  // Nachricht nach rechts wischen = Antworten (nur Finger/Stift). Kurz vibrieren, sobald Loslassen antwortet.
+  let sw = null; let swipedAt = 0;
+  el.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.bubble');
+    sw = b && e.pointerType !== 'mouse' ? { row: b.closest('.row'), x: e.clientX, y: e.clientY, on: false, armed: false } : null;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!sw) return;
+    const dx = e.clientX - sw.x; const dy = e.clientY - sw.y;
+    if (!sw.on) {
+      if (Math.abs(dy) > 12) { sw = null; return; }
+      if (dx < SWIPE_START || dx < Math.abs(dy) * 1.5) return;
+      if (!canSwipeReply(S.msgs.get(sw.row.dataset.id))) { sw = null; return; }
+      sw.on = true; cancel();
+      sw.icon = document.createElement('span');
+      sw.icon.className = 'swipe-ic';
+      sw.icon.innerHTML = ICON.reply;
+      sw.row.prepend(sw.icon);
+      sw.row.classList.add('swiping');
+    }
+    const x = Math.max(0, Math.min(dx - SWIPE_START, SWIPE_MAX));
+    sw.row.style.setProperty('--sx', `${x}px`);
+    const armed = x >= SWIPE_ARM;
+    if (armed !== sw.armed) { sw.armed = armed; sw.row.classList.toggle('swipe-armed', armed); if (armed) navigator.vibrate?.(10); }
+  });
+  const swipeEnd = () => {
+    const s = sw; sw = null;
+    if (!s?.on) return;
+    swipedAt = Date.now();
+    s.row.classList.remove('swiping', 'swipe-armed');
+    s.row.style.removeProperty('--sx');
+    setTimeout(() => s.icon.remove(), 200);
+    const m = S.msgs.get(s.row.dataset.id);
+    if (s.armed && m) startReply(m);
+  };
+  el.addEventListener('pointerup', swipeEnd);
+  el.addEventListener('pointercancel', swipeEnd);
   el.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('.bubble');
     if (!b || e.button > 0 || e.target.closest('[data-heard], [data-resend], [data-route-map], [data-route-reset], [data-geo], a')) return;
@@ -90,7 +139,7 @@ export function setupMessageGestures() {
     const b = e.target.closest('.bubble');
     // Nur per Finger/Stift (am PC markiert ein Doppelklick Text) und nie auf Knöpfen, Zitaten oder der Wegliste –
     // eine Reaktion geht ins Mesh und lässt sich nicht zurücknehmen.
-    if (!b || !reactionsSupported() || e.pointerType === 'mouse' || e.target.closest('button, a, .quote, .heard-list')) { lastTap = { id: null, t: 0 }; return; }
+    if (!b || !reactionsSupported() || e.pointerType === 'mouse' || Date.now() - swipedAt < 400 || e.target.closest('button, a, .quote, .heard-list')) { lastTap = { id: null, t: 0 }; return; }
     const id = b.closest('.row').dataset.id;
     const now = Date.now();
     if (lastTap.id === id && now - lastTap.t < 300) { lastTap = { id: null, t: 0 }; sendReaction(id, '❤️'); }
@@ -119,11 +168,7 @@ function openActions(id) {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'reply') {
       closeSheet();
-      if (S.source?.protocol === 'meshcore') {
-        const ta = $('#input');
-        if (!isMine(m)) { ta.value = `@[${nodeName(m.from)}] ${ta.value}`; ta.dispatchEvent(new Event('input')); }
-      } else { S.replyTo = id; renderReplyBar(); }
-      $('#input').focus();
+      startReply(m);
     } else if (act === 'copy') {
       closeSheet();
       navigator.clipboard?.writeText(m.text).then(() => toast(T('actions.copied')), () => toast(T('common.copyFailed')));

@@ -4,7 +4,7 @@ import { LOC, T } from '../core/i18n.js';
 import { $, ago, esc } from '../core/util.js';
 import { S } from '../core/state.js';
 import { api } from '../core/api.js';
-import { ICON } from '../core/icons.js';
+import { ICON, ic } from '../core/icons.js';
 import { avatar, closeSheet, openSheet, toast } from '../ui.js';
 import { node } from '../data.js';
 import { go, scheduleRender } from '../nav.js';
@@ -13,7 +13,8 @@ import { nodeKind } from './node.js';
 
 // ------------------------------------------------------------------ Kontakte
 
-export const TYPE = { 1: { label: T('type.companion'), icon: '👤' }, 2: { label: T('type.repeater'), icon: '📡' }, 3: { label: T('type.room'), icon: '🏠' }, 4: { label: T('type.sensor'), icon: '🌡️' } };
+// icon = Name in ICON (per ic() als Linien-Symbol)
+export const TYPE = { 1: { label: T('type.companion'), icon: 'user' }, 2: { label: T('type.repeater'), icon: 'radio' }, 3: { label: T('type.room'), icon: 'home' }, 4: { label: T('type.sensor'), icon: 'thermo' } };
 export const typeOf = (n) => TYPE[n?.type] || null;
 export const canDm = (n) => !n?.type || n.type === 1; // Repeater/Rooms/Sensoren nehmen keine normalen DMs
 
@@ -30,7 +31,7 @@ export function renderContacts() {
         <div class="segments" role="tablist">
           <button class="seg" data-tab="fav" role="tab">${ICON.star} ${T('contacts.favs')} <span id="cnt-fav"></span></button>
           <button class="seg" data-tab="all" role="tab">${T('contacts.all')} <span id="cnt-all"></span></button>
-          <button class="seg" data-tab="rpt" role="tab">📡 ${T('contacts.rpt')} <span id="cnt-rpt"></span></button>
+          <button class="seg" data-tab="rpt" role="tab">${ICON.radio} ${T('contacts.rpt')} <span id="cnt-rpt"></span></button>
         </div>
         <main class="scroll" id="nodes"></main>
       </div>`;
@@ -80,7 +81,7 @@ function contactRouteText(n) {
 }
 const keyShort = (n) => (n.id.startsWith('mc:') ? n.id.slice(3, 11) : n.id);
 // Avatar mit Stern-Abzeichen für Favoriten
-const favAvatar = (n) => `<span class="av-wrap">${avatar('dm:' + n.id)}${n.fav ? `<i class="av-star" title="${esc(T('fav.label'))}">★</i>` : ''}</span>`;
+export const favAvatar = (n, cls = '') => `<span class="av-wrap">${avatar('dm:' + n.id, cls)}${n.fav ? `<i class="av-star" title="${esc(T('fav.label'))}">${ICON.star}</i>` : ''}</span>`;
 
 function renderContactList() {
   const q = ($('#q')?.value || '').trim().toLowerCase();
@@ -104,7 +105,7 @@ function renderContactList() {
       ${favAvatar(n)}
       <div class="conv-body">
         <div class="conv-top"><span class="conv-title">${esc(name)}</span><span class="conv-time">${esc(ago(n.lastHeard))}</span></div>
-        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${t.icon} ${t.label} · ` : ''}${route ? `<span class="c-route">↪ ${esc(route)}</span> · ` : ''}<code class="c-key">${esc(keyShort(n))}</code></span></div>
+        <div class="conv-bottom"><span class="conv-preview muted">${t ? `${ic(t.icon)}${t.label} · ` : ''}${route ? `<span class="c-route">↪ ${esc(route)}</span> · ` : ''}<code class="c-key">${esc(keyShort(n))}</code></span></div>
       </div>
       <span class="row-more" role="button" tabindex="0" data-more="${esc(n.id)}" aria-label="${esc(T('contacts.moreFor', { name }))}">${ICON.more}</span>
     </button>`;
@@ -138,18 +139,18 @@ function openContact(id) {
   const route = contactRouteText(n);
   const name = n.long || n.short || 'Node';
   openSheet(`
-    <div class="contact-head">${favAvatar(n)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${t.icon} ${t.label}` : 'Node'}${n.fav ? ` · ★ ${T('fav.label')}` : ''}</div></div></div>
+    <div class="contact-head">${favAvatar(n)}<div><b>${esc(n.long || n.short || n.id)}</b><div class="muted">${t ? `${ic(t.icon)}${t.label}` : 'Node'}${n.fav ? ` · ${ic('star')}${T('fav.label')}` : ''}</div></div></div>
     <div class="info">
       ${row(T('node.lastHeard'), n.lastHeard ? `${ago(n.lastHeard)} (${new Date(n.lastHeard).toLocaleString(LOC)})` : null)}
       ${mc ? row(T('contact.route'), route) : row('Hops', n.hops)}
       ${row('SNR', n.snr)}
       ${mc && n.id.startsWith('mc:') ? row(T('contact.key'), `${n.id.slice(3, 11)}…${n.id.slice(-8)}`) : row('ID', n.id.length > 24 ? `${n.id.slice(0, 19)}…` : n.id)}
     </div>
-    ${canDm(n) ? `<button class="sheet-btn primary" data-act="dm">${T('contact.send')}</button>` : ''}
-    <button class="sheet-btn" data-act="details">${nodeKind(n) ? T('contact.detailsStatus') : T('contact.details')}</button>
-    ${mc ? `<button class="sheet-btn" data-act="fav">${n.fav ? T('contact.unfav') : T('contact.fav')}</button>` : ''}
-    <button class="sheet-btn" data-act="map">${T('contact.map')}</button>
-    ${mc && n.id.startsWith('mc:') ? `<button class="sheet-btn" data-act="key">${T('contact.copyKey')}</button>` : ''}
+    ${canDm(n) ? `<button class="sheet-btn primary" data-act="dm">${ic('chat')}${T('contact.send')}</button>` : ''}
+    <button class="sheet-btn" data-act="details">${ic('info')}${nodeKind(n) ? T('contact.detailsStatus') : T('contact.details')}</button>
+    ${mc ? `<button class="sheet-btn" data-act="fav">${ic(n.fav ? 'star' : 'starLine')}${n.fav ? T('contact.unfav') : T('contact.fav')}</button>` : ''}
+    <button class="sheet-btn" data-act="map">${ic('map')}${T('contact.map')}</button>
+    ${mc && n.id.startsWith('mc:') ? `<button class="sheet-btn" data-act="key">${ic('copy')}${T('contact.copyKey')}</button>` : ''}
     <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`, (e) => {
     if (e.target.closest('[data-act="fav"]')) { closeSheet(); toggleFav(n.id); }
     if (e.target.closest('[data-act="dm"]')) { closeSheet(); go('chat', `dm:${n.id}`); }

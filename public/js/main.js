@@ -4,6 +4,7 @@
 import './core/i18n.js';
 import './core/util.js';
 import './core/state.js';
+import './core/theme.js';
 import './core/api.js';
 import './core/icons.js';
 import './ui.js';

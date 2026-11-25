@@ -4,24 +4,25 @@ import { T } from '../core/i18n.js';
 import { esc } from '../core/util.js';
 import { S } from '../core/state.js';
 import { api } from '../core/api.js';
+import { ic } from '../core/icons.js';
 import { toast } from '../ui.js';
 import { ECHO_WINDOW_MS, echoSince, isMine, isOwnOther, nodeName, relayLabel } from '../data.js';
 import { scheduleRender } from '../nav.js';
 import { sendText } from './composer.js';
 
 // ------------------------------------------------------------------ Anzeige unter der Nachricht: Scope, Weg, Repeater-Echos
-// Scope/Region, mit der eine Nachricht gesendet wurde: Name, sonst Kurzcode; 🌐 = ohne Scope
+// Scope/Region, mit der eine Nachricht gesendet wurde: Name, sonst Kurzcode; Globus = ohne Scope
 export function msgScope(m) {
   const sc = m.scope;
   if (!sc) return null;
-  if (sc.name) return { text: `🔒 ${sc.name}`, title: T('scope.sentWith', { name: sc.name }) };
-  if (sc.code === 0) return { text: '🌐', title: T('scope.sentWithout') };
-  if (sc.code > 0) return { text: `🔒 #${sc.code.toString(16)}`, title: T('scope.sentUnknown') };
+  if (sc.name) return { icon: 'lock', text: sc.name, title: T('scope.sentWith', { name: sc.name }) };
+  if (sc.code === 0) return { icon: 'globe', text: '', title: T('scope.sentWithout') };
+  if (sc.code > 0) return { icon: 'lock', text: `#${sc.code.toString(16)}`, title: T('scope.sentUnknown') };
   return null;
 }
 export function scopeTag(m) {
   const sc = msgScope(m);
-  return sc ? `<span class="msg-scope" title="${esc(sc.title)}">${esc(sc.text)}</span>` : '';
+  return sc ? `<span class="msg-scope" title="${esc(sc.title)}">${ic(sc.icon)}${esc(sc.text)}</span>` : '';
 }
 // Empfangene Nachricht: Weg vom Absender zu uns (Repeater-Kennungen aus dem Paket)
 function routeBadge(m) {
@@ -39,9 +40,9 @@ function routeList(m) {
   const end = (label) => `<div class="heard-row route-end"><span class="heard-hop">•</span><span class="heard-name">${esc(label)}</span></div>`;
   const direct = !r.hops.length ? `<div class="heard-empty">${r.route === 'DIRECT' ? T('route.fixedNote') : T('route.directNote')}</div>` : '';
   return `<div class="heard-list">
-    <div class="heard-head">${T('route.toYou')}${r.bytes ? ` · ${T('route.hashBytes', { n: r.bytes })}` : ''}${msgScope(m) ? ` · Scope ${esc(msgScope(m).text)}` : ''}</div>
+    <div class="heard-head">${T('route.toYou')}${r.bytes ? ` · ${T('route.hashBytes', { n: r.bytes })}` : ''}${msgScope(m) ? ` · Scope ${esc(msgScope(m).text || T('scope.none'))}` : ''}</div>
     ${end(nodeName(m.from))}${rows}${direct}${end(T('common.you'))}
-    ${r.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${T('route.showMap')}</button>` : ''}
+    ${r.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${ic('map')}${T('route.showMap')}</button>` : ''}
   </div>`;
 }
 // ------------------------------------------------------------------ Resend
@@ -102,7 +103,7 @@ export function heardBadge(m) {
   }
   const waiting = !n && Date.now() - echoSince(m) < ECHO_WINDOW_MS;
   const title = n ? T('heard.byTitle', { n }) : waiting ? T('heard.waiting') : T('heard.none');
-  return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">📡 ${waiting ? '…' : n}</button>`;
+  return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">${ic('radio')}${waiting ? '…' : n}</button>`;
 }
 export function heardList(m) {
   if (!S.expanded.has(m.id)) return '';
@@ -128,7 +129,7 @@ function outRouteList(m) {
     <div class="heard-head">${T('out.to', { name: esc(to) })}${o.bytes ? ` · ${T('route.hashBytes', { n: o.bytes })}` : ''}</div>
     ${end(T('common.you'))}${rows}${note}${end(to)}
     <div class="heard-empty">${T('out.reported', { name: esc(to) })}</div>
-    ${o.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${T('route.showMap')}</button>` : ''}
+    ${o.hops.length ? `<button class="route-map" data-route-map="${esc(m.id)}">${ic('map')}${T('route.showMap')}</button>` : ''}
     ${o.hops.length ? `<button class="route-map" data-route-reset="${esc(m.id)}">${T('out.reset')}</button>` : ''}
   </div>`;
 }
