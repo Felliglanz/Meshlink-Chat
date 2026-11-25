@@ -29,10 +29,20 @@ export function scheduleRender() {
 }
 
 // Breiter Bildschirm (PC/Tablet quer): links dauerhaft die Chatliste, rechts die aktuelle Ansicht
+// Beim Drucken (PDF der Statistik) rechnet der Browser die Seite auf Papierbreite um – das ist kein schmaleres Fenster:
+// Layout dann nicht umbauen (sonst lädt die Ansicht neu und aufs Papier kommt nur „Lade …“).
 const wideMq = window.matchMedia('(min-width: 1000px)');
-export const isWide = () => wideMq.matches;
+const printMq = window.matchMedia('print');
+let printing = false;
+let wide = wideMq.matches; // aufgebautes Layout; ändert sich nur bei echter Größenänderung
+export const isWide = () => wide;
 const inApp = () => !['boot', 'login', 'offline'].includes(S.view); // angemeldet und Daten geladen
-wideMq.addEventListener?.('change', () => {
+addEventListener('beforeprint', () => { printing = true; });
+addEventListener('afterprint', () => { printing = false; setTimeout(syncLayout, 0); }); // Fenster während des Drucks verändert?
+wideMq.addEventListener?.('change', syncLayout);
+function syncLayout() {
+  if (printing || printMq.matches || wideMq.matches === wide) return;
+  wide = wideMq.matches;
   if (!inApp()) return; // Login-/Offline-Seite nicht leeren
   $('#side').innerHTML = '';
   $('#app').innerHTML = '';
@@ -41,7 +51,7 @@ wideMq.addEventListener?.('change', () => {
   leaveMap(); // Karte hängt am alten DOM -> neu aufbauen, gezeigten Weg behalten
   S.mapFocus = focus;
   render();
-});
+}
 
 function renderEmptyMain() {
   const app = $('#app');
