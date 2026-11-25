@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -1714,9 +1714,11 @@ const MIME = {
 };
 
 // Versionskennung aus dem Inhalt der App-Dateien. Ändert sich bei jedem Deploy mit Codeänderung.
+// Die App besteht aus ES-Modulen unter public/js/ (ohne Build-Schritt).
+const jsFiles = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((e) => (e.isDirectory() ? jsFiles(path.join(dir, e.name)) : e.name.endsWith('.js') ? [path.join(dir, e.name)] : [])); } catch { return []; } };
 const APP_VERSION = (() => {
   const h = crypto.createHash('sha1');
-  for (const f of ['app.js', 'style.css', 'sw.js', 'index.html', ...i18n.files()]) {
+  for (const f of [...jsFiles(path.join(PUBLIC_DIR, 'js')), 'style.css', 'sw.js', 'index.html', ...i18n.files()]) {
     try { h.update(fs.readFileSync(path.isAbsolute(f) ? f : path.join(PUBLIC_DIR, f))); } catch { /* fehlt */ }
   }
   return h.digest('hex').slice(0, 10);
@@ -1738,8 +1740,12 @@ function serveStatic(req, res, url) {
       data = Buffer.from(data.toString('utf8')
         .replace('<html lang="de">', `<html lang="${lang.lang}">`)
         .replace('<script type="application/json" id="i18n">{}</script>', () => `<script type="application/json" id="i18n">${JSON.stringify(lang).replace(/</g, '\\u003c')}</script>`)
-        .replace('src="/app.js"', `src="/app.js?v=${APP_VERSION}"`)
+        .replace('src="/js/main.js"', `src="/js/main.js?v=${APP_VERSION}"`)
         .replace('href="/style.css"', `href="/style.css?v=${APP_VERSION}"`));
+    } else if (ext === '.js' && rel.startsWith('/js/')) {
+      // Module untereinander mit derselben Version verlinken: nach einem Deploy lädt der Browser alle neu,
+      // nie alte und neue gemischt (Module mit anderer URL wären sonst doppelt geladen)
+      data = Buffer.from(data.toString('utf8').replace(/^(import\s+(?:[^'"\n]*?\sfrom\s+)?)'(\.{1,2}\/[^'?\n]+\.js)';$/gm, (all, pre, spec) => `${pre}'${spec}?v=${APP_VERSION}';`));
     } else if (rel === '/manifest.webmanifest') {
       // Beschreibung und Sprache der installierten App in der Sprache des Geräts
       const T = i18n.translator(i18n.pick(req));

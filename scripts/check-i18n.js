@@ -14,7 +14,9 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const DIR = path.join(ROOT, 'public', 'i18n');
-const CODE = ['public/app.js', 'server/server.js', 'server/push.js'].map((f) => path.join(ROOT, f));
+// Alle Module der App (public/js/**) und der Server
+const appFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? appFiles(path.join(dir, e.name)) : e.name.endsWith('.js') ? [path.join(dir, e.name)] : []));
+const CODE = [...appFiles(path.join(ROOT, 'public', 'js')), ...['server/server.js', 'server/push.js'].map((f) => path.join(ROOT, f))];
 const REQUIRED = ['de', 'en'];
 
 let errors = 0;

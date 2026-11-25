@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.6.0` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.7.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -410,7 +410,8 @@ Texts never go straight into the code: in the app use `T('area.name', { … })`,
 | `server/server.js` | Node server: login, polling, live stream (SSE), all `/api/…` endpoints. `normNode()`/`normMsg()` know MeshMonitor's data format. |
 | `server/push.js` | Web push without a library (VAPID derived from `SESSION_SECRET`) |
 | `server/i18n.js` | loads the language files, picks the language per device (cookie `ml_lang`, otherwise browser language) |
-| `public/` | the PWA: `app.js`, `style.css`, `sw.js`, manifest, icons, Leaflet |
+| `public/` | the PWA: `index.html`, `style.css`, `sw.js`, manifest, icons, Leaflet |
+| `public/js/` | the app as ES modules without a build step: entry `main.js`, basics in `core/` (language, state, API, helpers), views in `views/`, chat in `chat/`, map and packet analyzer in `map/` |
 | `public/i18n/` | language files, one per language |
 | `install.sh` / `uninstall.sh` | set up, update, remove on the server |
 | `scripts/deploy.sh` | install, update, check from your PC |

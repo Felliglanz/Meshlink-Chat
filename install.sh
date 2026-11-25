@@ -30,7 +30,7 @@ port_used() { grep -qE "[:.]$1[[:space:]]" <<<"$LISTEN"; }
 
 # ------------------------------------------------------------------ Voraussetzungen & Modus
 [ "$(id -u)" -eq 0 ] || { c_err "$(t 'Bitte als root ausführen' 'Please run as root')"; exit 1; }
-for f in server/server.js server/push.js server/i18n.js public/index.html public/app.js public/i18n/en.json uninstall.sh; do
+for f in server/server.js server/push.js server/i18n.js public/index.html public/js/main.js public/i18n/en.json uninstall.sh; do
   [ -f "$SRC/$f" ] || { c_err "$(t 'Datei fehlt im Quellordner' 'File missing in the source folder'): $f"; exit 1; }
 done
 

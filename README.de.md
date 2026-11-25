@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.6.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.7.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -408,7 +408,8 @@ Neue Einträge in `de.json` und `en.json` ergänzen und mit `node scripts/check-
 | `server/server.js` | Node-Server: Login, Polling, Live-Stream (SSE), alle `/api/…`-Endpunkte. `normNode()`/`normMsg()` kennen das Datenformat von MeshMonitor. |
 | `server/push.js` | Web Push ohne Bibliothek (VAPID aus `SESSION_SECRET` abgeleitet) |
 | `server/i18n.js` | lädt die Sprachdateien, wählt die Sprache je Gerät (Cookie `ml_lang`, sonst Browser-Sprache) |
-| `public/` | die PWA: `app.js`, `style.css`, `sw.js`, Manifest, Icons, Leaflet |
+| `public/` | die PWA: `index.html`, `style.css`, `sw.js`, Manifest, Icons, Leaflet |
+| `public/js/` | die App als ES-Module ohne Build-Schritt: Einstieg `main.js`, Grundlagen in `core/` (Sprache, Zustand, API, Helfer), Ansichten in `views/`, Chat in `chat/`, Karte und Paket-Analyzer in `map/` |
 | `public/i18n/` | Sprachdateien, eine je Sprache |
 | `install.sh` / `uninstall.sh` | Einrichten, Aktualisieren, Entfernen auf dem Server |
 | `scripts/deploy.sh` | vom PC aus installieren, aktualisieren, prüfen |

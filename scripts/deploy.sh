@@ -31,7 +31,8 @@ SSH=(ssh -o ConnectTimeout=10)
 
 # Vor jeder Übertragung: Syntax und Sprachdateien prüfen (bricht ab, bevor irgendetwas auf den LXC geht)
 precheck() {
-  for f in server/*.js public/app.js public/sw.js; do node --check "$f"; done
+  for f in server/*.js public/sw.js; do node --check "$f"; done
+  for f in $(find public/js -name '*.js'); do node --input-type=module --check < "$f" || { echo "$f"; exit 1; }; done
   node scripts/check-i18n.js >/dev/null || { node scripts/check-i18n.js; exit 1; }
   bash -n install.sh && bash -n uninstall.sh
 }
