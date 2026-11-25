@@ -11,7 +11,7 @@ MeshLink Chat sits on top of your [MeshMonitor](https://github.com/Yeraze/meshmo
 chat app with a map, live packets, a packet analyzer and push notifications.
 Built for **MeshCore**. Meshtastic sources get the basics (chat, contacts, map).
 
-`v1.4.6` · English & Deutsch · no npm dependencies · no build step · MIT license
+`v1.5.0` · English & Deutsch · no npm dependencies · no build step · MIT license
 
 </div>
 
@@ -216,6 +216,11 @@ if something is broken.
 <details>
 <summary><b>💬 Chats</b></summary>
 
+- **Bottom bar:** Chats · Contacts · Map · Repeaters (MeshCore only) · More (= the ☰ menu). The number on “Chats” counts
+  the chats with unread messages. It is hidden while a chat is open; on a PC it sits below the chat list.
+- **Search and filter:** the search line above the list searches chat names (message text: ☰ → Search messages).
+  Below it the filters **All · Unread · ★ · DMs · Channels**; ★ shows DMs with favourite contacts. Each device remembers
+  its filter.
 - **Chat list:** the ⇅ button above the channels sorts them as on the device, by newest message, by most messages
   (in the loaded history) or alphabetically. Each device remembers its own choice.
 - **Channel icon (MeshCore):** **#** = hashtag channel (key derived from the name, anyone with the name can read along),

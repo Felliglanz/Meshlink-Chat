@@ -11,7 +11,7 @@ MeshLink Chat setzt sich auf deinen [MeshMonitor](https://github.com/Yeraze/mesh
 Chat-App mit Karte, Live-Paketen, Paket-Analyzer und Push-Benachrichtigungen.
 Gebaut für **MeshCore**. Meshtastic-Quellen bekommen den Grundumfang (Chat, Kontakte, Karte).
 
-`v1.4.6` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
+`v1.5.0` · Deutsch & English · keine npm-Abhängigkeiten · kein Build-Schritt · MIT-Lizenz
 
 </div>
 
@@ -215,6 +215,12 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
 <details>
 <summary><b>💬 Chats</b></summary>
 
+- **Leiste unten:** Chats · Kontakte · Karte · Repeater (nur MeshCore) · Mehr (= das ☰-Menü). Die Zahl an „Chats“
+  zählt die Chats mit ungelesenen Nachrichten. Im geöffneten Chat ist die Leiste ausgeblendet, am PC sitzt sie unter der
+  Chatliste.
+- **Suchen und filtern:** Die Suchzeile über der Liste sucht im Namen der Chats (Nachrichtentext: ☰ → Nachrichten
+  suchen). Darunter die Filter **Alles · Ungelesen · ★ · DMs · Kanäle**; ★ zeigt DMs mit Favoriten-Kontakten. Den Filter
+  merkt sich jedes Gerät.
 - **Chatliste:** Der Knopf ⇅ über den Kanälen sortiert sie wie im Gerät, nach neuester Nachricht, nach den meisten
   Nachrichten (im geladenen Verlauf) oder alphabetisch. Die Wahl merkt sich jedes Gerät selbst.
 - **Kanal-Symbol (MeshCore):** **#** = Hashtag-Kanal (Schlüssel aus dem Namen, jeder mit dem Namen kann mitlesen),

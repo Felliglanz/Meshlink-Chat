@@ -722,12 +722,53 @@ function render() {
   else if (S.view === 'packets') renderPackets();
   else if (S.view === 'mentions') renderMentionsView();
   else if (S.view === 'admin') renderAdmin();
+  ensureNav();
 }
 
 function statusLine() {
   if (!S.sse) return `<span class="dot dot-warn"></span>${T('status.connecting')}`;
   if (!S.connected) return `<span class="dot dot-bad"></span>${T('status.mmDown')}`;
   return `<span class="dot dot-ok"></span>${esc(S.source?.name || T('status.connected'))}`;
+}
+
+// Chatliste: Filter (je Gerät gemerkt) und Suchtext (nur bis zum Neuladen)
+const LIST_FILTERS = ['all', 'unread', 'fav', 'dm', 'ch'];
+S.listFilter = load('listFilter', 'all');
+S.listQ = '';
+const isFavConv = (key) => key.startsWith('dm:') && Boolean(node(key.slice(3))?.fav);
+
+// Untere Leiste: Chats · Kontakte · Karte · Repeater (nur MeshCore) · Mehr (= Menü). In den Hauptansichten;
+// nicht im Chat, in der Verwaltung usw. Breiter Bildschirm: unten in der linken Spalte unter der Chatliste.
+const NAV_VIEWS = ['list', 'contacts', 'map', 'repeaters'];
+function navHtml(active) {
+  const unread = (() => { const { channels, dms } = conversations(); return channels.filter((c) => c.unread).length + dms.filter((c) => c.unread).length; })();
+  const tabs = [['list', 'chat', T('nav.chats'), unread], ['contacts', 'people', T('nav.contacts')], ['map', 'map', T('nav.map')]];
+  if (S.source?.protocol === 'meshcore') tabs.push(['repeaters', 'radio', T('nav.repeaters')]);
+  tabs.push(['more', 'menu', T('nav.more')]);
+  return tabs.map(([k, ic, label, n]) => `<button class="${active === k ? 'on' : ''}" data-nav="${k}"${active === k ? ' aria-current="page"' : ''}><span class="ic">${ICON[ic]}</span><span>${esc(label)}</span>${n ? `<span class="nav-dot">${n > 99 ? '99+' : n}</span>` : ''}</button>`).join('');
+}
+function ensureNav() {
+  const wide = isWide() && inApp();
+  const host = wide ? $('#side .view-list') : NAV_VIEWS.includes(S.view) ? $('#app > .view') : null;
+  document.querySelectorAll('.bottom-nav').forEach((n) => { if (n.parentElement !== host) { n.parentElement?.classList.remove('has-nav'); n.remove(); } });
+  if (!host) return;
+  let nav = $(':scope > .bottom-nav', host);
+  if (!nav) {
+    nav = document.createElement('nav');
+    nav.className = 'bottom-nav';
+    nav.onclick = (e) => {
+      const b = e.target.closest('[data-nav]');
+      if (!b) return;
+      const to = b.dataset.nav;
+      if (to === 'more') { openDrawer(); return; }
+      if (to === S.view && !(wide && S.view === 'chat')) return;
+      go(to, null, S.view !== 'list' && S.view !== 'chat'); // Tab zu Tab ersetzt den Verlauf, „Zurück“ führt zur Chatliste
+    };
+    host.appendChild(nav);
+    host.classList.add('has-nav');
+  }
+  const html = navHtml(S.view === 'chat' ? 'list' : S.view);
+  if (nav.innerHTML !== html) nav.innerHTML = html;
 }
 
 function renderList(app = $('#app')) {
@@ -737,16 +778,25 @@ function renderList(app = $('#app')) {
         <header class="bar">
           <button class="icon-btn" id="menu-btn" aria-label="${esc(T('list.menu'))}">${ICON.menu}</button>
           <div class="bar-title"><h1>MeshLink Chat</h1><div class="sub" id="status"></div></div>
-          <button class="icon-btn" id="search-btn" aria-label="${esc(T('list.search'))}">${ICON.search}</button>
-          <button class="icon-btn" id="contacts-btn" aria-label="${esc(T('list.contacts'))}">${ICON.people}</button>
         </header>
+        <div class="list-tools">
+          <label class="list-search">${ICON.search}<input id="list-q" type="search" autocomplete="off" enterkeyhint="search"></label>
+          <div class="chips" id="list-chips"></div>
+        </div>
         <main class="scroll" id="convs"></main>
         <button class="fab" id="new-dm" aria-label="${esc(T('list.newDm'))}">${ICON.plus}</button>
       </div>`;
     $('#menu-btn').onclick = openDrawer;
-    $('#contacts-btn').onclick = () => go('contacts');
-    $('#search-btn').onclick = () => go('search');
     $('#new-dm').onclick = () => go('contacts');
+    const q = $('#list-q', app);
+    q.value = S.listQ;
+    q.oninput = () => { S.listQ = q.value; renderList(app); };
+    $('#list-chips', app).onclick = (e) => {
+      const b = e.target.closest('[data-lf]');
+      if (!b) return;
+      S.listFilter = b.dataset.lf; save('listFilter', S.listFilter);
+      renderList(app);
+    };
     $('#convs').onclick = (e) => {
       if (e.target.closest('#ch-sort')) { openChannelSort(); return; }
       const it = e.target.closest('[data-conv]');
@@ -771,12 +821,33 @@ function renderList(app = $('#app')) {
         </div>
       </button>`;
   };
-  $('#convs').innerHTML = `
-    ${S.error && S.sse ? `<div class="banner">${esc(S.error)}</div>` : ''}
-    <div class="section section-row"><span>${T('list.channels')}</span>${channels.length > 1 ? `<button class="sort-btn" id="ch-sort" aria-label="${esc(T('list.sortTitle'))}" title="${esc(T('list.sortTitle'))}">${ICON.sort}<span>${esc(chSortLabel(chSort()))}</span></button>` : ''}</div>
-    ${channels.map(item).join('') || `<div class="empty">${T('list.noChannels')}</div>`}
-    <div class="section">${T('list.dms')}</div>
-    ${dms.map(item).join('') || `<div class="empty">${T('list.noDms')}</div>`}`;
+  // Suchzeile (Name des Chats) und Filter-Chips: Alles · Ungelesen · ★ (Favoriten-Kontakte) · DMs · Kanäle
+  const f = LIST_FILTERS.includes(S.listFilter) ? S.listFilter : 'all';
+  const q = S.listQ.trim().toLowerCase();
+  const unreadN = channels.filter((c) => c.unread).length + dms.filter((c) => c.unread).length;
+  $('#list-q', app).placeholder = T('list.searchN', { n: channels.length + dms.length });
+  const chip = (k, label, extra = '') => `<button class="pill ${f === k ? 'primary-pill' : ''}" data-lf="${k}"${k === 'fav' ? ` aria-label="${esc(T('list.fFav'))}" title="${esc(T('list.fFav'))}"` : ''}>${label}${extra}</button>`;
+  const chips = chip('all', T('list.fAll')) + chip('unread', T('list.fUnread'), unreadN ? ` <b>${unreadN > 99 ? '99+' : unreadN}</b>` : '')
+    + chip('fav', ICON.star) + chip('dm', T('list.fDms')) + chip('ch', T('list.fChannels'));
+  if ($('#list-chips', app).innerHTML !== chips) $('#list-chips', app).innerHTML = chips;
+  const keep = (c) => (!q || convTitle(c.key).toLowerCase().includes(q)) && (f !== 'unread' || c.unread > 0) && (f !== 'fav' || isFavConv(c.key));
+  const banner = S.error && S.sse ? `<div class="banner">${esc(S.error)}</div>` : '';
+  const sortBtn = channels.length > 1 ? `<button class="sort-btn" id="ch-sort" aria-label="${esc(T('list.sortTitle'))}" title="${esc(T('list.sortTitle'))}">${ICON.sort}<span>${esc(chSortLabel(chSort()))}</span></button>` : '';
+  if (f === 'all' && !q) {
+    $('#convs', app).innerHTML = `${banner}
+      <div class="section section-row"><span>${T('list.channels')}</span>${sortBtn}</div>
+      ${channels.map(item).join('') || `<div class="empty">${T('list.noChannels')}</div>`}
+      <div class="section">${T('list.dms')}</div>
+      ${dms.map(item).join('') || `<div class="empty">${T('list.noDms')}</div>`}`;
+  } else {
+    const chs = f === 'dm' || f === 'fav' ? [] : channels.filter(keep);
+    const ds = f === 'ch' ? [] : dms.filter(keep);
+    const empty = f === 'unread' && !q ? T('list.allRead') : f === 'fav' && !q ? T('list.noFavs') : T('list.noMatch');
+    $('#convs', app).innerHTML = `${banner}
+      ${chs.length ? `<div class="section section-row"><span>${T('list.channels')}</span>${sortBtn}</div>${chs.map(item).join('')}` : ''}
+      ${ds.length ? `<div class="section">${T('list.dms')}</div>${ds.map(item).join('')}` : ''}
+      ${chs.length || ds.length ? '' : `<div class="empty">${empty}</div>`}`;
+  }
   updateBadge();
 }
 
