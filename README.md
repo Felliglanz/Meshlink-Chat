@@ -55,6 +55,11 @@ whether your DMs arrived, how many repeaters pass on your channel messages, **ai
 **transmit time of your favourite repeaters** against the 10 % limit, **new on the mesh**, messages and packets per
 hour, records, packet types, SNR/RSSI. Every card explains itself with **?**. Can be saved as **PDF**.
 
+💬 **Ask the app.** Questions in your own words, e.g. “What's going on today?”, “Who renamed themselves?”, “Where
+does Luke come from?” or “What is SNR?”. A name alone shows a **profile** with name history, duplicate names and the
+repeater the node mostly comes in through. No AI and no outside service: the app maps the question to a fixed list
+of answers by keywords and works them out from the data it already has.
+
 🔔 **Push.** For DMs, mentions and reactions to your messages; adjustable per chat. Plus a **repeater watch** that
 tells you when a favourite repeater goes silent or its battery runs low.
 
@@ -326,6 +331,11 @@ if something is broken.
     MeshMonitor stores as status telemetry. Only works for repeaters whose status MeshMonitor fetches regularly.
   - **New on the mesh:** nodes MeshMonitor heard for the first time in the period (needs a MeshMonitor with `firstHeard`).
 - **Mentions:** all `@` mentions of the last 7 days across all channels.
+- **Ask the app** (menu): suggestions show up while you type, small typos in names don't matter. If the app doesn't
+  understand a question, it says so and suggests fitting ones. It never guesses. Name history, duplicate names and
+  heavy senders come from the adverts in MeshMonitor's packet log and only go back as far as the log. Channel senders
+  are just a name in the text that anyone can use, so answers there are hints, not proof. The question history only
+  lives in the page's memory.
 - **Room servers:** read posts even without logging in, log in to write. The route to the room shows below the login.
 - **My other nodes:** your own second devices. They appear as "via …", without counter and without push.
 - **Source:** appears if MeshMonitor has several sources; set permanently with `MM_SOURCE` in `.env`.

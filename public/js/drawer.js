@@ -49,6 +49,7 @@ export function openDrawer() {
       <button class="drawer-item ${S.view === 'mentions' ? 'active' : ''}" data-act="mentions"><span class="drawer-at">@</span><span>${T('men.title')}${unreadMentions() ? ` <small class="badge">${unreadMentions()}</small>` : ''}</span></button>
       ${mc ? `<button class="drawer-item ${S.view === 'rooms' ? 'active' : ''}" data-act="rooms">${ICON.home}<span>${T('rooms.title')}</span></button>` : ''}
       <button class="drawer-item ${S.view === 'search' ? 'active' : ''}" data-act="search">${ICON.search}<span>${T('drawer.search')}</span></button>
+      <button class="drawer-item ${S.view === 'ask' ? 'active' : ''}" data-act="ask">${ICON.ask}<span>${T('ask.title')}</span></button>
       <div class="drawer-section">${T('drawer.secNet')}</div>
       ${nav ? '' : `<button class="drawer-item ${S.view === 'map' ? 'active' : ''}" data-act="map">${ICON.map}<span>${T('map.title')}</span></button>`}
       ${mc && !nav ? `<button class="drawer-item ${S.view === 'repeaters' ? 'active' : ''}" data-act="repeaters">${ICON.radio}<span>${T('drawer.repeaters')}</span></button>` : ''}
@@ -101,6 +102,7 @@ export function openDrawer() {
     else if (act === 'map') { if (S.view !== 'map') go('map'); }
     else if (act === 'rooms') { if (S.view !== 'rooms') go('rooms'); }
     else if (act === 'search') { if (S.view !== 'search') go('search'); }
+    else if (act === 'ask') { if (S.view !== 'ask') go('ask'); }
     else if (act === 'stats') { if (S.view !== 'stats') go('stats'); }
     else if (act === 'repeaters') { if (S.view !== 'repeaters') go('repeaters'); }
     else if (act === 'packets') { if (S.view !== 'packets') go('packets'); }

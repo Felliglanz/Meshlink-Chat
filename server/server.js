@@ -1394,6 +1394,154 @@ async function repeaterAirtime(from, to) {
   return data;
 }
 
+// ---------------------------------------------------------------- Frag die App: Steckbrief, Namenswechsel, Vielsender
+// Alles bei der Frage aus MeshMonitor berechnet (Paket-Log, Knotenliste, geladene Nachrichten); nichts wird gesammelt.
+// Rückblick = so weit das Paket-Log von MeshMonitor reicht. 60 s gemerkt.
+const askCache = new Map();
+async function askCached(key, fn) {
+  const c = askCache.get(key);
+  if (c && Date.now() - c.at < 60000) return c.data;
+  const data = await fn();
+  askCache.set(key, { at: Date.now(), data });
+  while (askCache.size > 20) askCache.delete(askCache.keys().next().value);
+  return data;
+}
+// Pakete eines Typs seit "since", Seite für Seite (neueste zuerst), höchstens pages × 1000
+async function packetsOf(params, since, pages = 5) {
+  const all = [];
+  let truncated = false;
+  for (let page = 0, offset = 0; page < pages; page++) {
+    const j = await mm(`${sp()}/packets?${new URLSearchParams({ ...params, since: String(since), limit: '1000', offset: String(offset) })}`);
+    const arr = asArray(j, 'packets');
+    all.push(...arr);
+    offset += arr.length;
+    if (arr.length < 1000 || (j.total != null && offset >= j.total)) break;
+    if (page === pages - 1) truncated = true;
+  }
+  const oldest = all.reduce((m, p) => Math.min(m, toMs(p.timestamp) || m), Infinity);
+  return { list: all, truncated, oldest: Number.isFinite(oldest) ? oldest : null };
+}
+const normName = (s0) => str(s0).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const nodeLabel = (n) => n.long || n.short || n.id.slice(3, 11);
+function nodeBrief(n) {
+  const me = posOf(nodeById(state.me));
+  const pos = posOf(n);
+  const far = me && pos && n.id !== state.me;
+  // Richtung von mir aus (0° = Nord), für "kommt aus Richtung …"
+  const deg = far ? (() => { const r = Math.PI / 180; const y = Math.sin((pos[1] - me[1]) * r) * Math.cos(pos[0] * r); const x = Math.cos(me[0] * r) * Math.sin(pos[0] * r) - Math.sin(me[0] * r) * Math.cos(pos[0] * r) * Math.cos((pos[1] - me[1]) * r); return Math.round(((Math.atan2(y, x) / r) + 360) % 360); })() : null;
+  return { id: n.id, name: nodeLabel(n), type: n.type, fav: n.fav, firstHeard: n.firstHeard || null, lastHeard: n.lastHeard || null, hops: n.hops, snr: n.snr, pos: Boolean(pos), km: far ? Math.round(distKm(me, pos) * 10) / 10 : null, deg };
+}
+// Steckbrief: Knoten (per ID) oder Kanal-Absender (per Name – nur Text, also nie ganz sicher)
+async function askProfile(id, name) {
+  const n = id ? nodeById(id) : null;
+  const key = `profile|${state.source.id}|${n?.id || ''}|${name || ''}`;
+  return askCached(key, async () => {
+    const label = n ? nodeLabel(n) : str(name);
+    const nn = normName(label);
+    const twins = nn ? state.nodes.filter((x) => x.id !== n?.id && normName(x.long || x.short) === nn).map(nodeBrief) : [];
+    const out = { node: n ? nodeBrief(n) : null, name: label, twins, names: null, via: null, adverts: null, msgs: null, packetLogFrom: null };
+    // Nachrichten in MeshLink (geladener Verlauf): wie viele, wann zuletzt, über welchen ersten Repeater
+    const mine = [...state.msgs.values()].map((e) => e.msg).filter((m) => !m.mine && !m.reaction && (n ? m.from === n.id : m.name === label));
+    if (mine.length) {
+      const first = new Map();
+      const chans = new Map();
+      for (const m of mine) {
+        const h = m.route?.hops?.[0];
+        if (h) { const nm = h.name || nameForHash(h.hash); const k = nodeForHash(h.hash)?.id || nm || h.hash; const x = first.get(k) || { hash: h.hash, name: nm, n: 0 }; x.n++; first.set(k, x); }
+        else if (m.hops === 0 || (m.route && !m.route.hops.length)) { const x = first.get('') || { hash: '', name: null, n: 0 }; x.n++; first.set('', x); }
+        if (!m.dm) bump(chans, m.channel);
+      }
+      out.msgs = { n: mine.length, last: Math.max(...mine.map((m) => m.ts)), dm: mine.filter((m) => m.dm).length, via: [...first.values()].sort((a, b) => b.n - a.n).slice(0, 4),
+        channels: top(chans, 3).map(([index, k]) => ({ index, name: state.channels.find((c) => c.index === index)?.name || '', n: k })) };
+    }
+    // Paket-Log: Adverts dieses Schlüssels -> Namen im Lauf der Zeit und erster Repeater (= nah beim Absender)
+    if (state.source.protocol === 'meshcore' && nn) {
+      try {
+        const rn = await askRenames();
+        const tw = rn.twins.find((x) => normName(x.name) === nn);
+        for (const tid of tw?.ids || []) if (tid !== n?.id && !twins.some((x) => x.id === tid)) twins.push(nodeById(tid) ? nodeBrief(nodeById(tid)) : { id: tid, name: tw.name, type: null });
+      } catch (e) { if (e.status !== 403) throw e; }
+    }
+    const pk = pkOf(n?.id);
+    if (pk && state.source.protocol === 'meshcore') {
+      try {
+        const { list, oldest, truncated } = await packetsOf({ payload_type: '4', sender: pk }, Date.now() - 8 * 86400000, 3);
+        const ads = list.filter((p) => str(p.sender_public_key).toLowerCase() === pk);
+        out.packetLogFrom = oldest;
+        const names = new Map();
+        const via = new Map();
+        for (const p of ads) {
+          const t = toMs(p.timestamp);
+          const nm = str(p.advert_name).trim();
+          if (nm) { const x = names.get(nm) || { name: nm, first: t, last: t, n: 0 }; x.first = Math.min(x.first, t); x.last = Math.max(x.last, t); x.n++; names.set(nm, x); }
+          const path = Array.isArray(p.path_hops) ? p.path_hops.map((h) => str(h).toLowerCase()) : [];
+          const h0 = path[0] || '';
+          const k = h0 ? nodeForHash(h0)?.id || nameForHash(h0) || h0 : '';
+          const v = via.get(k) || { hash: h0, name: h0 ? nameForHash(h0) : null, n: 0 };
+          v.n++; via.set(k, v);
+        }
+        out.names = [...names.values()].sort((a, b) => b.last - a.last);
+        out.via = [...via.values()].sort((a, b) => b.n - a.n).slice(0, 4);
+        const times = ads.map((p) => toMs(p.timestamp)).filter(Boolean);
+        out.adverts = { n: ads.length, truncated, perDay: times.length > 1 ? (ads.length / Math.max(1, (Math.max(...times) - Math.min(...times)) / 86400000)) : null };
+      } catch (e) { if (e.status !== 403) throw e; out.packetForbidden = true; }
+    }
+    return out;
+  });
+}
+// Namenswechsel (gleicher Schlüssel, anderer Name) und Doppelgänger (gleicher Name, andere Schlüssel) aus den Adverts
+async function askRenames() {
+  return askCached(`renames|${state.source.id}`, async () => {
+    const { list, oldest, truncated } = await packetsOf({ payload_type: '4' }, Date.now() - 8 * 86400000, 10);
+    const byKey = new Map();
+    for (const p of list) {
+      const pk = pkOf(p.sender_public_key); const nm = str(p.advert_name).trim(); const t = toMs(p.timestamp);
+      if (!pk || !nm || !t) continue;
+      const k = byKey.get(pk) || new Map();
+      const x = k.get(nm) || { name: nm, first: t, last: t };
+      x.first = Math.min(x.first, t); x.last = Math.max(x.last, t);
+      k.set(nm, x); byKey.set(pk, k);
+    }
+    const renames = [];
+    for (const [pk, names] of byKey) {
+      if (names.size < 2) continue;
+      const arr = [...names.values()].sort((a, b) => a.last - b.last);
+      const n = nodeById(`mc:${pk}`);
+      renames.push({ id: n?.id || `mc:${pk}`, now: arr[arr.length - 1].name, before: arr.slice(0, -1).map((x) => x.name).reverse(), at: arr[arr.length - 1].first });
+    }
+    renames.sort((a, b) => b.at - a.at);
+    // Gleicher Name auf mehreren Schlüsseln: Knotenliste + Adverts
+    const keysByName = new Map();
+    const add = (nm, pk) => { const k = normName(nm); if (!k || !pk) return; const x = keysByName.get(k) || { name: nm, keys: new Set() }; x.keys.add(pk); keysByName.set(k, x); };
+    for (const n of state.nodes) if (n.id !== state.me) add(n.long, pkOf(n.id));
+    for (const [pk, names] of byKey) for (const nm of names.keys()) add(nm, pk);
+    const twins = [...keysByName.values()].filter((x) => x.keys.size > 1).map((x) => ({ name: x.name, ids: [...x.keys].slice(0, 6).map((pk) => `mc:${pk}`), n: x.keys.size })).sort((a, b) => b.n - a.n).slice(0, 10);
+    return { renames: renames.slice(0, 15), twins, scanned: list.length, from: oldest, truncated };
+  });
+}
+// Wer funkt am meisten (letzte 24 Std.): Pakete mit Absender-Schlüssel, Adverts, berechnete Sendezeit
+async function askBusy() {
+  return askCached(`busy|${state.source.id}`, async () => {
+    const radio = await radioParams().catch(() => null);
+    const since = Date.now() - 86400000;
+    const { list, oldest, truncated } = await packetsOf({}, since, 10);
+    const by = new Map();
+    let anon = 0;
+    for (const p of list) {
+      const pk = pkOf(p.sender_public_key);
+      if (!pk) { anon++; continue; }
+      const x = by.get(pk) || { id: `mc:${pk}`, n: 0, adverts: 0, ms: 0, name: str(p.advert_name).trim() || null };
+      x.n++;
+      if (str(p.payload_type_name) === 'ADVERT' || Number(p.payload_type) === 4) x.adverts++;
+      if (radio) x.ms += airtimeMs(packetAirBytes(p), radio);
+      by.set(pk, x);
+    }
+    const rows = [...by.values()].map((x) => { const n = nodeById(x.id); return { ...x, name: n ? nodeLabel(n) : x.name || x.id.slice(3, 11), ms: Math.round(x.ms) }; })
+      .sort((a, b) => (radio ? b.ms - a.ms : b.n - a.n)).slice(0, 8);
+    return { rows, total: list.length, anon, from: oldest || since, truncated, radio: Boolean(radio) };
+  });
+}
+
 async function rangeStats(q) {
   const { from, to, starts } = parseRange(q);
   const now = Date.now();
@@ -2612,6 +2760,19 @@ async function handleApi(req, res, url) {
     if (!state.source) return send(res, 503, { error: state.error || T('status.mmDown') });
     const days = Math.min(7, Math.max(1, Number(url.searchParams.get('days')) || 7));
     try { return send(res, 200, await mentionsSince(days)); } catch (e) { return mmError(res, e, T); }
+  }
+
+  if (p === '/api/ask' && req.method === 'GET') {
+    if (!state.source) await tick();
+    if (!state.source) return send(res, 503, { error: state.error || T('status.mmDown') });
+    const what = url.searchParams.get('what');
+    try {
+      if (what === 'profile') return send(res, 200, await askProfile(str(url.searchParams.get('id')).slice(0, 80) || null, str(url.searchParams.get('name')).slice(0, 60) || null));
+      if (state.source.protocol !== 'meshcore') return send(res, 200, { unsupported: true });
+      if (what === 'renames') return send(res, 200, await askRenames());
+      if (what === 'busy') return send(res, 200, await askBusy());
+      return send(res, 400, { error: 'what?' });
+    } catch (e) { return mmError(res, e, T); }
   }
 
   if (p === '/api/stats' && req.method === 'GET') {

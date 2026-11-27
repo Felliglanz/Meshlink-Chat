@@ -103,12 +103,17 @@ if (process.env.MOCK_PROTO === 'meshcore') {
     const types = [['ADVERT', 4], ['GRP_TXT', 5], ['GRP_TXT', 5], ['TXT_MSG', 2], ['ACK', 3], ['PATH', 8], ['REQ', 0], ['RESPONSE', 1], ['ANON_REQ', 7], ['TRACE', 9]];
     const paths = [[], [], ['b46f'], ['b3f8'], ['b46f', 'b3f8'], ['7a', 'b3f8', 'b46f'], ['11', '22', '33', '7a', 'b46f']];
     const senders = [pk('b'), pk('e'), 'b46f' + '1'.repeat(60), 'b3f8' + '2'.repeat(60), 'c4'.repeat(32)];
+    // Advert-Namen wie echt; RPT Hafen hieß in der ersten Tageshälfte noch "Hafen-Test" (Umbenennung)
+    const NAMES = { [pk('b')]: 'R2-D2', [pk('e')]: 'Joe Mobil', ['b46f' + '1'.repeat(60)]: 'RPT Nordhang', ['b3f8' + '2'.repeat(60)]: 'RPT Hafen', ['c4'.repeat(32)]: 'Clubhaus-Brett' };
+    const advName = (spk, i) => (spk.startsWith('b3f8') && (i * 37) % 400 < 200 ? 'Hafen-Test' : NAMES[spk]);
     for (let i = 0; i < 400; i++) {
       const [name, type] = types[i % types.length]; const path = paths[(i * 3) % paths.length]; const spk = senders[Math.floor(i / 10) % senders.length];
       packets.push({ protocol: 'meshcore', id: pkid++, timestamp: mid.getTime() + Math.floor((span * ((i * 37) % 400)) / 400), payload_type: type, payload_type_name: name,
         route_type: path.length ? 1 : 2, route_type_name: i % 4 ? 'FLOOD' : 'DIRECT', hop_count: path.length, path_hops: path, snr: -8 + ((i * 13) % 80) / 4, rssi: -118 + (i % 40),
-        payload_size: 20 + (i % 90), src_hash: spk.slice(0, 2), sender_public_key: name === 'ADVERT' || i % 3 === 0 ? spk : null, advert_name: name === 'ADVERT' ? 'Node' : null, plaintext: null });
+        payload_size: 20 + (i % 90), src_hash: spk.slice(0, 2), sender_public_key: name === 'ADVERT' || i % 3 === 0 ? spk : null, advert_name: name === 'ADVERT' ? advName(spk, i) : null, plaintext: null });
     }
+    // Forensik: ein Doppelgänger (anderer Schlüssel, Name "R2-D2"), gehört über RPT Hafen
+    for (let i = 0; i < 3; i++) packets.push({ protocol: 'meshcore', id: pkid++, timestamp: mid.getTime() + (i + 1) * 3 * 3600000, payload_type: 4, payload_type_name: 'ADVERT', route_type_name: 'FLOOD', hop_count: 2, path_hops: ['7a', 'b3f8'], snr: -6, rssi: -112, payload_size: 100, src_hash: 'ff', sender_public_key: 'f'.repeat(64), advert_name: 'R2-D2', plaintext: null });
     // Paket-Log reicht wie bei MeshMonitor nur begrenzt zurück: hier bis gestern 12 Uhr
     for (let i = 0; i < 120; i++) {
       const t = mid.getTime() - 12 * 3600000 + i * 360000;

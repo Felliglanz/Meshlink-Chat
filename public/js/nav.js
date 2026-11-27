@@ -12,6 +12,7 @@ import { renderContacts } from './views/contacts.js';
 import { renderRoom, renderRooms } from './views/rooms.js';
 import { renderMentionsView, renderSearch } from './views/search.js';
 import { renderStats } from './views/stats.js';
+import { renderAsk } from './views/ask.js';
 import { renderRepeaters } from './views/repeaters.js';
 import { leaveMap, renderMap, toggleMapFull } from './map/map.js';
 import { renderPackets } from './map/packets.js';
@@ -75,6 +76,7 @@ export function render() {
   else if (S.view === 'room') renderRoom();
   else if (S.view === 'search') renderSearch();
   else if (S.view === 'stats') renderStats();
+  else if (S.view === 'ask') renderAsk();
   else if (S.view === 'repeaters') renderRepeaters();
   else if (S.view === 'packets') renderPackets();
   else if (S.view === 'mentions') renderMentionsView();

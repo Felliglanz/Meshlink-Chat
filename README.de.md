@@ -55,6 +55,11 @@ DMs angekommen sind, wie viele Repeater deine Kanalnachrichten weitergeben, **Fu
 **Sendezeit deiner Favoriten-Repeater** gegen die 10-%-Grenze, **neu im Netz**, Nachrichten und Pakete je Stunde,
 Rekorde, Pakettypen, SNR/RSSI. Jede Karte erklärt sich mit **?** selbst. Lässt sich als **PDF** speichern.
 
+💬 **Frag die App.** Fragen in deinen Worten, z. B. „Was ist heute los?“, „Wer hat sich umbenannt?“, „Woher kommt
+Luke?“ oder „Was heißt SNR?“. Ein Name allein zeigt einen **Steckbrief** mit Namensverlauf, Doppelgängern und dem
+Repeater, über den der Knoten meist hereinkommt. Keine KI und kein Dienst von außen: Die App ordnet die Frage über
+Stichwörter einer festen Liste von Antworten zu und rechnet sie aus den vorhandenen Daten.
+
 🔔 **Push.** Bei DMs, Erwähnungen und Reaktionen auf deine Nachrichten; pro Chat einstellbar. Dazu gibt es einen
 **Repeater-Wächter**, der meldet, wenn ein Favoriten-Repeater verstummt oder sein Akku schwächelt.
 
@@ -325,6 +330,11 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
     als Status-Telemetrie speichert. Geht nur für Repeater, deren Status MeshMonitor regelmäßig abholt.
   - **Neu im Netz:** Knoten, die MeshMonitor im Zeitraum zum ersten Mal gehört hat (braucht ein MeshMonitor mit `firstHeard`).
 - **Erwähnungen:** alle `@`-Erwähnungen der letzten 7 Tage über alle Kanäle.
+- **Frag die App** (Menü): Vorschläge erscheinen schon beim Tippen, kleine Tippfehler in Namen sind egal. Versteht die
+  App eine Frage nicht, sagt sie das und schlägt passende vor. Sie rät nie. Namensverlauf, Doppelgänger und Vielsender
+  kommen aus den Adverts im Paket-Log von MeshMonitor und reichen nur so weit zurück wie das Log. Bei Kanal-Absendern
+  steht nur ein Name im Text, jeder kann ihn benutzen. Die Antworten sind dort Hinweise, kein Beweis. Der Verlauf der
+  Fragen liegt nur im Speicher der Seite.
 - **Room-Server:** Beiträge lesen auch ohne Anmeldung, zum Schreiben anmelden. Unter dem Anmelden steht der Weg zum Room.
 - **Meine weiteren Nodes:** eigene Zweitgeräte. Sie erscheinen als „via …“, ohne Zähler und ohne Push.
 - **Quelle:** erscheint bei mehreren Quellen in MeshMonitor; dauerhaft per `MM_SOURCE` in der `.env`.

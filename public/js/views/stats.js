@@ -124,6 +124,36 @@ function rankList(rows, empty) {
     </div>`).join('')}</div>`;
 }
 
+// ---- auch von "Frag die App" benutzt
+export const pct = (v) => (v > 0 && v < 0.1 ? `< ${nf(0.1, 1)} %` : `${nf(v, v < 10 ? 1 : 0)} %`);
+export const airLevel = (v) => T(v < 5 ? 'stats.airCalm' : v < 15 ? 'stats.airNormal' : v < 30 ? 'stats.airBusy' : 'stats.airFull');
+// Funk-Auslastung bei dir: Anteil der Zeit (ab Beginn des Paket-Logs, bis jetzt)
+export function airOf(st) {
+  const p = st.packets && !st.packets.error ? st.packets : null;
+  const cov = p?.coverageFrom ?? null;
+  if (!p?.air || (cov && cov >= st.to)) return null;
+  const end = Math.min(st.to, st.generated);
+  const from = cov && cov > st.from ? cov : st.from;
+  return end > from ? { ...p.air, pct: (p.air.ms / (end - from)) * 100 } : null;
+}
+// "Auf einen Blick": was los war, als Sätze [Symbol, Text]
+export function glanceLines(st) {
+  const m = st.msgs; const own = m.own || {};
+  const air = airOf(st);
+  const reps = (st.airtime?.repeaters || []).filter((r) => r.tx);
+  const over = reps.filter((r) => r.tx.pct >= 10).sort((a, b) => b.tx.pct - a.tx.pct);
+  const out = [];
+  out.push(['chat', m.total ? T('stats.gMsgs', { msgs: T('stats.nMsgsG', { n: m.total, num: nf(m.total) }), senders: T('stats.nSendersG', { n: m.senders, num: nf(m.senders) }) }) : T('stats.gQuiet')]);
+  if (st.nodes) out.push(['people', st.newNodes?.n ? T('stats.gNodesNew', { n: st.nodes.heard, num: nf(st.nodes.heard), fresh: nf(st.newNodes.n) }) : T('stats.gNodes', { n: st.nodes.heard, num: nf(st.nodes.heard) })]);
+  const dmKnown = own.dm ? own.dm.ok + own.dm.failed : 0;
+  if (dmKnown) out.push(['mail', T(own.dm.failed ? 'stats.gDmFail' : 'stats.gDm', { ok: nf(own.dm.ok), n: nf(dmKnown), failed: nf(own.dm.failed) })]);
+  if (own.reach) out.push(['radio', own.reach.max ? T('stats.gReach', { avg: nf(own.reach.avg, 1) }) : T('stats.gReachNone')]);
+  if (air) out.push(['pulse', T('stats.gAir', { pct: pct(air.pct), level: airLevel(air.pct) })]);
+  if (over.length) out.push(['warn', T('stats.gRepOver', { name: over[0].name, pct: pct(over[0].tx.pct) })]);
+  else if (reps.length) { const top = [...reps].sort((a, b) => b.tx.pct - a.tx.pct)[0]; out.push(['check', T('stats.gRepOk', { name: top.name, pct: pct(top.tx.pct) })]); }
+  return out;
+}
+
 function drawStats() {
   const st = S.stats;
   const el = $('#stats-body');
@@ -176,22 +206,11 @@ function drawStats() {
 
   // ---- Neue Teile: auf einen Blick, deine Nachrichten, Funk-Auslastung, neu im Netz
   const own = m.own || {};
-  const pct = (v) => (v > 0 && v < 0.1 ? `< ${nf(0.1, 1)} %` : `${nf(v, v < 10 ? 1 : 0)} %`);
   const end = Math.min(st.to, st.generated);
-  const airFrom = cov && cov > st.from ? cov : st.from;
-  const air = pk?.air && end > airFrom ? { ...pk.air, pct: (pk.air.ms / (end - airFrom)) * 100 } : null;
-  const airLevel = (v) => T(v < 5 ? 'stats.airCalm' : v < 15 ? 'stats.airNormal' : v < 30 ? 'stats.airBusy' : 'stats.airFull');
+  const air = airOf(st);
   const reps = (st.airtime?.repeaters || []).filter((r) => r.tx);
-  const over = reps.filter((r) => r.tx.pct >= 10).sort((a, b) => b.tx.pct - a.tx.pct);
-  const glance = [];
-  glance.push([ 'chat', m.total ? T('stats.gMsgs', { msgs: T('stats.nMsgsG', { n: m.total, num: nf(m.total) }), senders: T('stats.nSendersG', { n: m.senders, num: nf(m.senders) }) }) : T('stats.gQuiet') ]);
-  if (st.nodes) glance.push(['people', st.newNodes?.n ? T('stats.gNodesNew', { n: st.nodes.heard, num: nf(st.nodes.heard), fresh: nf(st.newNodes.n) }) : T('stats.gNodes', { n: st.nodes.heard, num: nf(st.nodes.heard) })]);
   const dmKnown = own.dm ? own.dm.ok + own.dm.failed : 0;
-  if (dmKnown) glance.push(['mail', T(own.dm.failed ? 'stats.gDmFail' : 'stats.gDm', { ok: nf(own.dm.ok), n: nf(dmKnown), failed: nf(own.dm.failed) })]);
-  if (own.reach) glance.push(['radio', own.reach.max ? T('stats.gReach', { avg: nf(own.reach.avg, 1) }) : T('stats.gReachNone')]);
-  if (air) glance.push(['pulse', T('stats.gAir', { pct: pct(air.pct), level: airLevel(air.pct) })]);
-  if (over.length) glance.push(['warn', T('stats.gRepOver', { name: over[0].name, pct: pct(over[0].tx.pct) })]);
-  else if (reps.length) { const top = [...reps].sort((a, b) => b.tx.pct - a.tx.pct)[0]; glance.push(['check', T('stats.gRepOk', { name: top.name, pct: pct(top.tx.pct) })]); }
+  const glance = glanceLines(st);
 
   // Kopf einer Karte mit optionaler Erklärung ("?" klappt einen Satz auf)
   const head = (title, sub = '', help = '') => `<div class="card-head"><b>${title}</b><span class="card-head-r">${sub}${help ? `<button class="help-btn" data-help aria-expanded="false" aria-label="${esc(T('stats.helpAria'))}" title="${esc(T('stats.helpAria'))}">?</button>` : ''}</span></div>${help ? `<div class="card-help" hidden>${esc(T(help))}</div>` : ''}`;

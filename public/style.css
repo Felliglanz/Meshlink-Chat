@@ -511,6 +511,30 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: in
 .stats-page .note { background: var(--panel); border-left: 4px solid var(--accent); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; font-size: 14px; box-shadow: var(--shadow); }
 .stats-page .note small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 .view-stats .segments { flex-wrap: nowrap; }
+/* Frag die App */
+.ask-log { background: var(--chat-bg); padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
+.ask-intro { margin: auto 0; text-align: center; padding: 16px 8px; color: var(--muted); }
+.ask-intro > .ico { width: 44px; height: 44px; margin: 0 auto 6px; display: grid; color: var(--accent); }
+.ask-intro > .ico svg { width: 44px; height: 44px; }
+.ask-intro p { color: var(--fg); font-size: 15px; line-height: 1.45; margin: 0 auto 12px; max-width: 34em; }
+.ask-intro small { display: block; margin-top: 12px; font-size: 12px; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; }
+.ask-a .ask-chips { justify-content: flex-start; }
+.ask-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px 12px; font-size: 13.5px; color: var(--fg); box-shadow: var(--shadow); text-align: left; }
+.ask-chip:active { background: var(--quote); }
+.ask-q { align-self: flex-end; max-width: 85%; background: var(--mine); color: var(--mine-fg); border-radius: 16px 16px 4px 16px; padding: 8px 12px; font-size: 15px; box-shadow: var(--shadow); overflow-wrap: anywhere; }
+.ask-a { align-self: flex-start; max-width: 94%; background: var(--panel); border-radius: 16px 16px 16px 4px; padding: 10px 12px; font-size: 14.5px; box-shadow: var(--shadow); line-height: 1.42; }
+.ask-a.busy { color: var(--muted); display: flex; align-items: center; animation: pulse 1.4s infinite; }
+.ask-title { display: block; font-size: 15.5px; margin-bottom: 4px; }
+.ask-a ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.ask-a li { display: flex; gap: 7px; align-items: flex-start; }
+.ask-a li .ico { color: var(--accent); margin-top: .12em; }
+.ask-note { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.ask-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ask-suggest { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 6px; scrollbar-width: none; }
+.ask-suggest:empty { display: none; }
+.ask-suggest .ask-chip { white-space: nowrap; flex-shrink: 0; }
+.ask-form input { flex: 1; min-width: 0; border: 0; outline: none; background: var(--panel); border-radius: 22px; padding: 11px 16px; min-height: 44px; font-size: 16px; color: var(--fg); box-shadow: var(--shadow); }
 /* Statistik: Erklärung je Karte, auf einen Blick, Funk-Auslastung, neu im Netz */
 .card-head-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .help-btn { width: 22px; height: 22px; border-radius: 50%; background: var(--quote); color: var(--muted); font-size: 12.5px; font-weight: 700; flex-shrink: 0; display: grid; place-items: center; }
@@ -598,6 +622,7 @@ button.geo { display: inline-block; padding: 2px 8px; margin: 1px 0; border-radi
   body.print-stats .scroll { overflow: visible !important; height: auto !important; flex: none; }
   body.print-stats .stats-page { background: #fff; padding: 0; }
   body.print-stats .stats-page button, body.print-stats .stats-page .pill { display: none !important; }
+  body.print-stats .card-help[hidden] { display: none !important; }
   body.print-stats .card, body.print-stats .tile, body.print-stats .note, body.print-stats .banner, body.print-stats .record, body.print-stats .rank-row {
     break-inside: avoid; page-break-inside: avoid; box-shadow: none;
   }
