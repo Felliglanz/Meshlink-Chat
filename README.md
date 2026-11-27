@@ -50,8 +50,10 @@ from the paths of the packets your companion received. No extra nodes needed.
 🧭 **Tools for tinkerers.** Custom traceroute via repeaters you pick, with SNR there and back, repeater status,
 history and packet traffic per hour and day, neighbour lists, direct ping, reset path and resend a DM by flood, send advert.
 
-📊 **Statistics.** Today, yesterday or 7 days: messages and packets per hour, records (farthest sender, longest
-path …), packet types, SNR/RSSI. Can be saved as **PDF**.
+📊 **Statistics.** Today, yesterday or 7 days. At the top, **at a glance** in plain sentences what went on. Plus:
+whether your DMs arrived, how many repeaters pass on your channel messages, **airtime** at your place and the
+**transmit time of your favourite repeaters** against the 10 % limit, **new on the mesh**, messages and packets per
+hour, records, packet types, SNR/RSSI. Every card explains itself with **?**. Can be saved as **PDF**.
 
 🔔 **Push.** For DMs, mentions and reactions to your messages; adjustable per chat. Plus a **repeater watch** that
 tells you when a favourite repeater goes silent or its battery runs low.
@@ -238,8 +240,11 @@ if something is broken.
   with their position in the path and SNR. An SNR value only exists for the station your device heard directly.
   The others only appear in the path. Echoes are matched by the packet's encrypted bytes, which are identical in every
   copy. So echoes after a resend count too, and someone sending the same text at the same time is not counted.
-- **Your own DM:** the antenna symbol appears once MeshMonitor has heard repeater echoes. After delivery (✓✓) the details show the
-  **path to the recipient** that the recipient reports back with the acknowledgement. Long-pressing your own DM
+- **Your own DM:** the antenna symbol appears once MeshMonitor has heard repeater echoes. MeshLink looks up the heard
+  copies in the packet log and separates **flood** from **fixed route**: on a fixed route every repeater removes itself
+  from the path before passing it on, so the heard copy only names the rest. MeshLink therefore shows the repeater that
+  actually transmitted, with its SNR, followed by the remaining route. After delivery (✓✓) the details show the
+  **path to the recipient** that the recipient reports back with the acknowledgement (used for new DMs from then on). Long-pressing your own DM
   offers **reset path** and, as long as it isn't delivered, **resend by flood**.
 - **Received:** `↳ 2 hops · 1B` shows the path to you and the hash size (1/2/3 bytes per repeater ID).
   "Show path on map" shows the route with the straight-line distance of each leg.
@@ -314,6 +319,12 @@ if something is broken.
 - **Statistics:** today, yesterday or 7 days, calculated fresh each time you open it. Packet numbers only go back
   as far as MeshMonitor's packet log (default 24 h / 1000 packets). **⤓ PDF** opens the print dialog with an A4
   layout.
+  - **Airtime:** calculated from all heard packets and your device's radio settings (SF, bandwidth, CR). MeshLink reads
+    the settings from MeshMonitor (needs the “connection read” permission). Your own transmit time is not in the
+    packet log and is estimated from your messages.
+  - **Transmit time of favourite repeaters:** from their own counters (transmit and receive time since start), which
+    MeshMonitor stores as status telemetry. Only works for repeaters whose status MeshMonitor fetches regularly.
+  - **New on the mesh:** nodes MeshMonitor heard for the first time in the period (needs a MeshMonitor with `firstHeard`).
 - **Mentions:** all `@` mentions of the last 7 days across all channels.
 - **Room servers:** read posts even without logging in, log in to write. The route to the room shows below the login.
 - **My other nodes:** your own second devices. They appear as "via …", without counter and without push.

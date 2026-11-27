@@ -50,11 +50,11 @@ if (process.env.MOCK_PROTO === 'meshcore') {
   nodes.push(
     // Wie bei MeshMonitor beobachtet: eigener Node in der v1-Liste ohne Position (die steht nur in der Kontaktliste)
     { nodeId: `mc:${MEPK}`, publicKey: MEPK, longName: null, shortName: null, isLocalNode: true, ...(process.env.MOCK_MEPOS ? { latitude: 51.2112, longitude: 9.9702 } : {}) },
-    { nodeId: `mc:${pk('b')}`, publicKey: pk('b'), longName: 'R2-D2', shortName: 'R2', advType: 1, isFavorite: true, hopsAway: 0, lastHeard: Math.floor(Date.now() / 1000) - 60, latitude: 51.2301, longitude: 10.0012 },
-    { nodeId: `mc:${pk('e')}`, publicKey: pk('e'), longName: 'Joe Mobil', shortName: null, advType: 1, hopsAway: 2, lastHeard: Math.floor(Date.now() / 1000) - 5 * 86400, latitude: 51.1801, longitude: 9.8402 },
+    { nodeId: `mc:${pk('b')}`, publicKey: pk('b'), longName: 'R2-D2', shortName: 'R2', advType: 1, isFavorite: true, hopsAway: 0, lastHeard: Math.floor(Date.now() / 1000) - 60, firstHeard: Math.floor(Date.now() / 1000) - 30 * 86400, latitude: 51.2301, longitude: 10.0012 },
+    { nodeId: `mc:${pk('e')}`, publicKey: pk('e'), longName: 'Joe Mobil', shortName: null, advType: 1, hopsAway: 2, lastHeard: Math.floor(Date.now() / 1000) - 5 * 86400, firstHeard: Math.floor(Date.now() / 1000) - 6 * 86400, latitude: 51.1801, longitude: 9.8402 },
     { nodeId: 'mc:b46f' + '1'.repeat(60), publicKey: 'b46f' + '1'.repeat(60), longName: 'RPT Nordhang', advType: 2, isFavorite: true, lastHeard: Math.floor(Date.now() / 1000) - 300, latitude: 51.2402, longitude: 9.9301 },
-    { nodeId: 'mc:b3f8' + '2'.repeat(60), publicKey: 'b3f8' + '2'.repeat(60), longName: 'RPT Hafen', advType: 2, lastHeard: Math.floor(Date.now() / 1000) - 3600, latitude: 51.2052, longitude: 10.0103 },
-    { nodeId: 'mc:b3f8' + '3'.repeat(60), publicKey: 'b3f8' + '3'.repeat(60), longName: 'Bob Handy', advType: 1 },
+    { nodeId: 'mc:b3f8' + '2'.repeat(60), publicKey: 'b3f8' + '2'.repeat(60), longName: 'RPT Hafen', advType: 2, isFavorite: true, lastHeard: Math.floor(Date.now() / 1000) - 3600, firstHeard: Math.floor(Date.now() / 1000) - 2 * 3600, latitude: 51.2052, longitude: 10.0103 },
+    { nodeId: 'mc:b3f8' + '3'.repeat(60), publicKey: 'b3f8' + '3'.repeat(60), longName: 'Bob Handy', advType: 1, firstHeard: Math.floor(Date.now() / 1000) - 1200 },
     { nodeId: 'mc:' + 'c4'.repeat(32), publicKey: 'c4'.repeat(32), longName: 'Clubhaus-Brett', advType: 3, lastHeard: Math.floor(Date.now() / 1000) - 120, latitude: 51.215, longitude: 9.9900 },
   );
   var packets = []; let pkid = 1;
@@ -142,14 +142,14 @@ if (process.env.MOCK_PROTO === 'meshcore') {
       hops: [{ index: 0, publicKey: RP2, hash: 'b3', snr: 9.25 }, { index: 1, publicKey: RPT0, hash: 'b4', snr: 6.5 }, { index: 2, publicKey: RP2, hash: 'b3', snr: 4.75 }, { index: 3, publicKey: MEPK, hash: MEPK.slice(0, 2), snr: 10 }] }); }
   // Status-Telemetrie des Repeaters: stündlich, 7 Tage. Zähler seit Gerätestart; vor ~3 Tagen ein Neustart
   // (Zähler und Laufzeit beginnen bei 0), vor ~2,5 Tagen 5 Std. ohne Messung (Lücke). Verkehr schwankt über den Tag.
-  const telem = [];
+  const telem = []; const telem2 = [];
   { const now = Date.now(); const boot = now - 3 * 86400000 - 1800000;
-    let recv = 9000; let sent = 6000; let up = 5 * 86400;
+    let recv = 9000; let sent = 6000; let up = 5 * 86400; let air = 20000; let rxAir = 90000; let air2 = 50000;
     for (let i = 0; i < 7 * 24; i++) {
       const t = now - (7 * 24 - i) * 3600000 + 600000;
       const hr = new Date(t).getHours();
       const rate = Math.round(40 + 30 * Math.sin(((hr - 6) / 24) * 2 * Math.PI));
-      if (t >= boot && t - 3600000 < boot) { recv = Math.round(((t - boot) / 3600000) * rate); sent = Math.round(recv * 0.6); up = Math.round((t - boot) / 1000); } else { recv += rate; sent += Math.round(rate * 0.6); up += 3600; }
+      if (t >= boot && t - 3600000 < boot) { recv = Math.round(((t - boot) / 3600000) * rate); sent = Math.round(recv * 0.6); up = Math.round((t - boot) / 1000); air = Math.round(recv * 1.6); rxAir = recv * 9; } else { recv += rate; sent += Math.round(rate * 0.6); up += 3600; air += Math.round(rate * 1.6); rxAir += rate * 9; }
       if (i >= 100 && i < 105) continue; // Lücke
       telem.push(
         { telemetryType: 'mc_status_battery_volts', value: 3.9 + 0.15 * Math.sin(i / 8), timestamp: t },
@@ -157,7 +157,13 @@ if (process.env.MOCK_PROTO === 'meshcore') {
         { telemetryType: 'mc_status_packets_recv', value: recv, timestamp: t },
         { telemetryType: 'mc_status_packets_sent', value: sent, timestamp: t },
         { telemetryType: 'mc_status_uptime_secs', value: up, timestamp: t },
+        { telemetryType: 'mc_status_air_time_secs', value: air, timestamp: t },
+        { telemetryType: 'mc_status_rx_air_time_secs', value: rxAir, timestamp: t },
       );
+      // Zweiter Favorit (RPT Hafen): viel Verkehr, sendet um die 10 % – nur Sendezeit und Laufzeit
+      telem2.push({ telemetryType: 'mc_status_uptime_secs', value: 20 * 86400 + i * 3600, timestamp: t },
+        { telemetryType: 'mc_status_air_time_secs', value: (air2 += Math.round(3600 * (0.085 + 0.04 * Math.sin(((hr - 6) / 24) * 2 * Math.PI)))), timestamp: t },
+        { telemetryType: 'mc_status_rx_air_time_secs', value: 200000 + i * 3600 * 0.3, timestamp: t });
     }
     globalThis.mockCounters = { recv, sent, up, at: now };
   }
@@ -287,8 +293,16 @@ if (process.env.MOCK_PROTO === 'meshcore') {
         // "#busy": viel Verkehr danach (300 Kanalnachrichten), die DM rutscht aus den letzten 200 – wie in einem vollen Mesh
         if (q.text.includes('#busy')) for (let i = 0; i < 300; i++) messages.unshift({ protocol: 'meshcore', id: `${t + 1 + i}-busy${i}`, fromName: `Bot ${i % 30}`, toNodeId: '!ffffffff', text: `Verkehr ${i}`, channel: 0, timestamp: t + 1 + i, createdAt: t + 1 + i, hopCount: 2, scopeCode: 0 });
         setTimeout(() => { if (q.text.includes('#noack')) mm.deliveryStatus = 'failed'; else { mm.deliveryStatus = 'delivered'; mm.roundTripMs = 2345; } }, q.text.includes('#noack') ? 8000 : 4000);
-        // gehört von (ab 4.17.3 im MeshCore-Teil als heardBy); "#noheard" = keiner
-        if (!q.text.includes('#noheard')) setTimeout(() => { mm.heardBy = [{ hash: 'b4', name: 'RPT Mitte', snr: 7.5, hops: 1 }, { hash: 'b3', name: null, snr: 3.25, hops: 2 }]; }, 2000);
+        // gehört von (ab 4.17.3 im MeshCore-Teil als heardBy, Position ab 0); "#noheard" = keiner.
+        // Standard wie echt über den festen Weg b3,b4: b3 streicht sich vor dem Weitersenden aus dem Weg, gehört wird
+        // die Kopie mit Restweg [b4] – MeshMonitor schreibt den SNR deshalb b4 zu. "#flood" = per Flood (Weg wächst).
+        const dmPk = (dt, route, path, snr) => setTimeout(() => packets.unshift({ protocol: 'meshcore', id: pkid++, timestamp: Date.now(), payload_type: 2, payload_type_name: 'TXT_MSG',
+          route_type_name: route, hop_count: path.length, path_hops: path, snr, rssi: -96, payload_size: 32, src_hash: MEPK.slice(0, 2), sender_public_key: null }), dt);
+        if (!q.text.includes('#noheard')) {
+          if (q.text.includes('#flood')) { dmPk(1200, 'FLOOD', ['b4'], 7.5); dmPk(1600, 'FLOOD', ['b4', 'b3'], 3.25); }
+          else dmPk(1200, 'DIRECT', ['b4'], 7.5);
+          setTimeout(() => { mm.heardBy = q.text.includes('#flood') ? [{ hash: 'b4', name: 'RPT Mitte', snr: 7.5, hops: 0 }, { hash: 'b3', name: null, snr: 3.25, hops: 1 }] : [{ hash: 'b4', name: 'RPT Mitte', snr: 7.5, hops: 0 }]; }, 2000);
+        }
       }
       if (!q.toNodeId) {
         // Wie MeshMonitor: eigene Aussendung (ohne Weg) und Echos der Repeater, alle mit denselben verschlüsselten Bytes.
@@ -302,6 +316,8 @@ if (process.env.MOCK_PROTO === 'meshcore') {
     }
     // MeshCore-REST (nicht v1): Scope, Regionen, Advert, Resend, Reaktionen, Kontakt-Werkzeuge, Rooms
     const mc = '/api/sources/mc1/meshcore';
+    // Gerätestatus wie MeshMonitor (MeshCore-Ansicht): lokaler Node mit Funkeinstellungen (EU/DE schmal: 869,618 MHz, 62,5 kHz, SF8, CR 4/8)
+    if (url.pathname === `${mc}/status`) return J(200, { success: true, data: { connected: true, deviceType: 1, localNode: { publicKey: MEPK, name: 'Mesh@Home', advType: 1, txPower: 22, radioFreq: 869.618, radioBw: 62.5, radioSf: 8, radioCr: 8 } } });
     const RP1 = 'b46f' + '1'.repeat(60); const RP2 = 'b3f8' + '2'.repeat(60); const ROOM = 'c4'.repeat(32);
     const fv = /^\/api\/sources\/mc1\/meshcore\/nodes\/([0-9a-f]{64})\/favorite$/.exec(url.pathname);
     if (fv && req.method === 'POST') {
@@ -472,7 +488,9 @@ if (process.env.MOCK_PROTO === 'meshcore') {
     if (url.pathname.startsWith(`${b}/telemetry/`)) {
       const id = decodeURIComponent(url.pathname.split('/').pop());
       const since = Number(url.searchParams.get('since') || 0);
-      return J(200, { success: true, data: id === `mc:${RPT}` ? telem.filter((t) => t.timestamp >= since) : [] });
+      const ty = url.searchParams.get('type');
+      const src = id === `mc:${RPT}` ? telem : id === `mc:b3f8${'2'.repeat(60)}` ? telem2 : [];
+      return J(200, { success: true, data: src.filter((t) => t.timestamp >= since && (!ty || t.telemetryType === ty)) });
     }
     if (url.pathname === `${b}/actions/traceroute` && req.method === 'POST') {
       // 4.17.3: Trace ohne Rückweg-Palindrom; letzte Zeile = dein Funkgerät hört den letzten Hop

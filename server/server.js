@@ -112,6 +112,7 @@ function normNode(n) {
     long: str(n.longName ?? n.user?.longName ?? n.name ?? n.advName),
     short: str(n.shortName ?? n.user?.shortName),
     lastHeard: toMs(n.lastHeard ?? n.lastSeen ?? n.lastAdvert ?? n.updatedAt),
+    firstHeard: toMs(n.firstHeard) || null, // MeshCore: erster Empfang auf dieser Quelle (ab MeshMonitor mit #5390)
     hops: n.hopsAway ?? null,
     snr: n.snr ?? null,
     local: Boolean(n.isLocal ?? n.isLocalNode ?? n.isMe ?? false),
@@ -243,6 +244,7 @@ const state = {
   pkIndex: new Map(), // erste 12 Hex-Zeichen des Public Keys -> [volle Node-IDs]
   heard: new Map(), // msgId -> Map(hash -> {hash, name, snr, hops, count})
   dmHeard: new Map(), // msgId -> [{hash, name, snr, hops}] – eigene DMs, von MeshMonitor (heardBy, ab 4.17.3)
+  dmEcho: new Map(), // msgId -> {mode, heard, direct} – gehörte Kopien einer eigenen DM, nach Flood/festem Weg getrennt (Paket-Log)
   dmRoute: new Map(), // msgId -> {hops, flood} – Weg einer zugestellten eigenen DM (Kontakt-Pfad nach dem ACK); null = schon versucht
   dmHeardDirty: new Set(),
   seenPackets: new Set(),
@@ -403,7 +405,7 @@ function buildMsg(raw) {
   // jeder könnte unter meinem Namen schreiben. Gleicher Name von einem anderen eigenen Gerät: „Eigene Nodes“ in der App.
   m.mine = Boolean((state.me && m.from === state.me) || /^sent-/.test(m.id));
   m.ownOther = !m.mine && Boolean(m.name && state.otherNames.has(m.name));
-  m.heard = m.dm ? state.dmHeard.get(m.id) || [] : heardFor(m.id);
+  if (m.dm) applyDmEcho(m); else m.heard = heardFor(m.id);
   m.route = routeOf(m);
   const rx = state.reactions.get(m.id);
   if (rx) { m.reaction = true; m.emoji = rx.emoji; m.replyId = rx.target; }
@@ -468,9 +470,10 @@ async function pollMessages() {
   for (const e of state.msgs.values()) {
     if (seenNow.has(e.msg.id) || !e.msg.mine || !e.msg.dm) continue;
     let upd = applyDelivery(e.msg);
-    if (state.dmHeardDirty.has(e.msg.id)) { e.msg.heard = state.dmHeard.get(e.msg.id) || []; upd = true; }
+    if (state.dmHeardDirty.has(e.msg.id)) { applyDmEcho(e.msg); upd = true; }
     if (upd) { e.sig = JSON.stringify(e.msg); changed.push(e.msg); }
   }
+  for (const id of state.dmHeardDirty) queueDmEcho(id);
   state.dmHeardDirty.clear();
   // Speicher begrenzen
   if (state.msgs.size > cfg.historyLimit * 3) {
@@ -481,6 +484,7 @@ async function pollMessages() {
   for (const [id, key] of state.echoKey) if (!state.msgs.has(id)) { state.echoKey.delete(id); state.echoByKey.delete(key); }
   for (const id of state.resendAt.keys()) if (!state.msgs.has(id)) state.resendAt.delete(id);
   if (state.dmHeard.size > 500) for (const id of state.dmHeard.keys()) if (!state.msgs.has(id)) state.dmHeard.delete(id);
+  if (state.dmEcho.size > 500) for (const id of state.dmEcho.keys()) if (!state.msgs.has(id)) state.dmEcho.delete(id);
   if (state.dmRoute.size > 500) for (const id of state.dmRoute.keys()) if (!state.msgs.has(id)) state.dmRoute.delete(id);
   if (state.source.protocol === 'meshcore') scheduleDmRoutes();
   if (state.reactions.size > 3000) for (const id of state.reactions.keys()) if (!state.msgs.has(id)) state.reactions.delete(id);
@@ -577,6 +581,7 @@ async function fetchDmRoute(id, pk, src) {
   e.msg.outRoute = route;
   e.sig = JSON.stringify(e.msg);
   broadcast('messages', [e.msg]);
+  if (state.dmHeard.has(id)) queueDmEcho(id); // jetzt lässt sich der sendende Repeater eines festen Wegs benennen
 }
 
 // ---------------------------------------------------------------- Repeater-Verwaltung: Hintergrund-Aufträge
@@ -847,12 +852,47 @@ function newPacketAcc(n) {
     total: 0, bytes: 0, perBucket: Array(n).fill(0), types: new Map(), routes: new Map(), hopHist: Array(9).fill(0),
     snrN: 0, snrSum: 0, snrMin: null, snrMax: null, rssiN: 0, rssiSum: 0,
     lastHop: new Map(), lastHopSnr: new Map(), relay: new Map(), adverts: 0, advertNodes: new Set(), senders: new Set(),
-    farDirect: null, maxHops: null, oldest: null,
+    farDirect: null, maxHops: null, oldest: null, airMs: 0, airBucket: Array(n).fill(0),
   };
+}
+
+// ---------------------------------------------------------------- Sendezeit (Airtime) auf LoRa
+// Funkeinstellungen des eigenen Geräts: MeshMonitor zeigt sie in seiner MeshCore-Ansicht (GET …/meshcore/status,
+// localNode.radioFreq/Bw/Sf/Cr); die v1-API hat sie nicht. 10 Min. gemerkt; ohne Recht oder ohne Werte: null.
+let radioCache = { key: '', at: 0, v: null };
+async function radioParams() {
+  if (state.source?.protocol !== 'meshcore') return null;
+  if (radioCache.key === state.source.id && Date.now() - radioCache.at < 600000) return radioCache.v;
+  let v = null;
+  try {
+    const d = unwrap(await mm(`${mcPath()}/status`, { raw: true })) || {};
+    const ln = d.localNode || {};
+    const sf = Number(ln.radioSf); const bw = Number(ln.radioBw); let cr = Number(ln.radioCr); const freq = Number(ln.radioFreq);
+    if (cr >= 1 && cr <= 4) cr += 4; // 4/5 … 4/8 als 1…4 statt 5…8
+    if (sf >= 5 && sf <= 12 && bw > 0 && bw <= 1000 && cr >= 5 && cr <= 8) v = { sf, bw, cr, freq: Number.isFinite(freq) && freq > 0 ? freq : null };
+  } catch (e) { if (e.status !== 403 && e.status !== 404) console.error('[airtime] Funkeinstellungen:', e.status || '', e.message); }
+  radioCache = { key: state.source.id, at: Date.now(), v };
+  return v;
+}
+// Zeit in der Luft für ein LoRa-Paket (Semtech AN1200.13): expliziter Header, CRC an, Präambel wie MeshCore
+// (SF ≤ 8: 32 Symbole, sonst 16 – RadioLibWrappers::preambleLengthForSF), Low-Data-Rate-Optimierung ab 16 ms je Symbol.
+function airtimeMs(bytes, r) {
+  const tsym = (2 ** r.sf) / (r.bw * 1000) * 1000;
+  const de = tsym > 16 ? 1 : 0;
+  const pre = (r.sf <= 8 ? 32 : 16) + 4.25;
+  const n = 8 + Math.max(Math.ceil((8 * bytes - 4 * r.sf + 28 + 16) / (4 * (r.sf - 2 * de))) * r.cr, 0);
+  return (pre + n) * tsym;
+}
+// Paketlänge auf Funk: aus den Rohdaten, sonst Nutzlast + Kopf + Weg
+function packetAirBytes(p) {
+  if (typeof p.raw_hex === 'string' && /^[0-9a-f]+$/i.test(p.raw_hex)) return p.raw_hex.length / 2;
+  const path = Array.isArray(p.path_hops) ? p.path_hops.reduce((a, h) => a + str(h).length / 2, 0) : 0;
+  return (Number(p.payload_size) || 0) + 2 + path;
 }
 
 function addPacket(a, p, t, starts, me) {
   a.total++;
+  if (a.radio) { const ms = airtimeMs(packetAirBytes(p), a.radio); a.airMs += ms; a.airBucket[bucketOf(starts, t)] += ms; }
   a.bytes += Number(p.payload_size) || 0;
   a.perBucket[bucketOf(starts, t)]++;
   if (a.oldest == null || t < a.oldest) a.oldest = t;
@@ -910,13 +950,13 @@ async function packetLogStart() {
 const PACKET_PAGES_MAX = 100; // 100.000 Pakete je Zählung
 const packetAccs = new Map(); // key -> {acc, live, lastTs, recent: Map(id->ts), at, busy, truncated}
 
-async function packetStats(from, to, starts) {
+async function packetStats(from, to, starts, radio = null) {
   const live = to >= Date.now() - 60000;
-  const key = `${state.source.id}|${from}|${live ? 'live' : to}|${starts.join(',')}`;
+  const key = `${state.source.id}|${from}|${live ? 'live' : to}|${starts.join(',')}|${radio ? Object.values(radio).join(',') : '-'}`;
   let e = packetAccs.get(key);
   if (e && !live && Date.now() - e.at > 600000) { packetAccs.delete(key); e = null; }
   if (!e) {
-    e = { acc: newPacketAcc(starts.length), live, lastTs: 0, recent: new Map(), at: Date.now(), busy: null, truncated: false };
+    e = { acc: Object.assign(newPacketAcc(starts.length), { radio }), live, lastTs: 0, recent: new Map(), at: Date.now(), busy: null, truncated: false };
     packetAccs.set(key, e);
     while (packetAccs.size > 3) packetAccs.delete(packetAccs.keys().next().value);
   } else if (!live) return e;
@@ -965,6 +1005,7 @@ function newMsgAgg(starts) {
     perBucket: Array(starts.length).fill(0), truncated: false,
     chans: new Map(), senders: new Map(), emojis: new Map(), scopes: new Map(), hashBytes: new Map(), far: new Map(),
     hopSum: 0, hopN: 0, direct: 0, longest: null, longText: null, scopeKnown: 0,
+    dmOut: 0, dmOk: 0, dmFail: 0, rttSum: 0, rttN: 0, reach: [], ownBytes: [],
   };
 }
 
@@ -977,7 +1018,7 @@ function addMsg(g, m, starts, me) {
   if (m.scope?.name) bump(g.scopes, `🔒 ${m.scope.name}`);
   else if (m.scope?.code > 0) bump(g.scopes, `🔒 #${m.scope.code.toString(16)}`);
   else if (m.scope?.code === 0 && !m.dm) bump(g.scopes, ''); // '' = ohne Scope (Text macht die App in ihrer Sprache)
-  if (m.mine) { g.mine++; return; }
+  if (m.mine) { g.mine++; addOwnMsg(g, m); return; }
   g.received++;
   if (m.ownOther) return;
   const who = m.name || senderName(m);
@@ -996,6 +1037,40 @@ function addMsg(g, m, starts, me) {
   if (me && pos && !g.far.has(n.id) && g.far.size < 3000) g.far.set(n.id, { id: n.id, name: who, km: distKm(me, pos), hops: hops ?? null });
 }
 
+// Eigene Nachricht: Zustellung (DM), Weiterleitung durch Repeater (Kanal) und Größe auf Funk (für die Sendezeit)
+function addOwnMsg(g, m) {
+  if (state.source.protocol !== 'meshcore') return; // Zustellung, Echos und Funkformat gibt es so nur bei MeshCore
+  const resends = (state.resendAt.get(m.id) || []).length;
+  const tx = 1 + resends;
+  if (g.ownBytes.length < 5000) g.ownBytes.push([ownAirBytes(m), tx]);
+  if (m.dm) {
+    g.dmOut++;
+    const d = state.delivery.get(m.id);
+    if (d?.state === 'delivered') { g.dmOk++; if (d.rtt != null) { g.rttSum += d.rtt; g.rttN++; } } else if (d?.state === 'failed') g.dmFail++;
+    return;
+  }
+  if (Date.now() - m.ts < ECHO_WINDOW_MS || g.reach.length >= 5000) return;
+  // Bekannt, wenn MeshLink die Echos geprüft hat (letzte 6 Std.) oder MeshMonitor heardBy mitliefert
+  const own = state.backfilled.has(m.id) ? (m.heard || []).length : null;
+  g.reach.push({ n: Math.max(own ?? -1, m.mmHeard ?? -1), known: own != null || m.mmHeard != null });
+}
+// Bytes einer eigenen Nachricht auf Funk (MeshCore): Kopf + Weglänge + verschlüsselter Text (auf 16 Byte aufgerundet)
+function ownAirBytes(m) {
+  const plain = 5 + Buffer.byteLength(m.dm ? m.text : `${m.name || ''}: ${m.text}`); // Zeitstempel + Flags + Text
+  const cipher = Math.ceil(plain / 16) * 16;
+  return 2 + (m.dm ? 4 : 1) + 2 + cipher; // Kopf/Weg, Ziel+Absender bzw. Kanal-Hash, MAC
+}
+
+function ownSummary(g) {
+  // MeshMonitor liefert heardBy nur, wenn es etwas gab: kennt es heardBy überhaupt (eine Nachricht hat es), gilt "nichts" als 0
+  const mmKnows = g.reach.some((r) => r.known && r.n > 0);
+  const reach = g.reach.filter((r) => r.known || mmKnows).map((r) => Math.max(0, r.n));
+  return {
+    dm: g.dmOut ? { sent: g.dmOut, ok: g.dmOk, failed: g.dmFail, open: g.dmOut - g.dmOk - g.dmFail, rtt: g.rttN ? Math.round(g.rttSum / g.rttN) : null } : null,
+    reach: reach.length ? { msgs: g.reach.length, known: reach.length, avg: reach.reduce((a, b) => a + b, 0) / reach.length, zero: reach.filter((n) => !n).length, max: Math.max(...reach) } : null,
+    bytes: g.ownBytes,
+  };
+}
 function finishMsgAgg(g, starts, reactionsKnown) {
   const busiest = g.perBucket.reduce((b, v, i) => (v > g.perBucket[b] ? i : b), 0);
   return {
@@ -1012,6 +1087,7 @@ function finishMsgAgg(g, starts, reactionsKnown) {
     busiest: g.total ? { start: starts[busiest], n: g.perBucket[busiest] } : null,
     farthest: [...g.far.values()].sort((a, b) => b.km - a.km).slice(0, 3),
     longest: g.longest, longText: g.longText, hasMyPos: Boolean(posOf(nodeById(state.me))),
+    own: ownSummary(g),
   };
 }
 
@@ -1026,6 +1102,7 @@ function channelRowToMsg(r, idx) {
   if (r.reactionEmoji) { m.reaction = true; m.emoji = str(r.reactionEmoji); m.replyId = r.reactionTargetId ?? null; }
   const code = r.scopeCode == null ? null : Number(r.scopeCode);
   if (r.scopeName || code != null) m.scope = { name: str(r.scopeName).trim() || null, code: Number.isFinite(code) ? code : null };
+  if (Array.isArray(r.heardBy)) m.mmHeard = r.heardBy.length;
   return m;
 }
 
@@ -1261,16 +1338,78 @@ function parseRange(q) {
   return { from, to: Math.max(to, from + 1), starts };
 }
 
+// Sendeanteil der Favoriten-Repeater: Jeder MeshCore-Repeater zählt seine Sendezeit (air_time_secs) und Empfangszeit
+// (rx_air_time_secs) seit dem Start; MeshMonitor speichert sie als Status-Telemetrie. Zwischen zwei Messungen:
+// Zuwachs / Abstand = Anteil. Neustart (Zähler kleiner, Laufzeit kürzer als der Abstand) oder Lücke > 3 Std.:
+// dieser Abschnitt zählt nicht. Teilweise im Zeitraum: anteilig. 2 Min. gemerkt.
+let airCache = { key: '', at: 0, data: null };
+async function telemetryOfType(pk, type, since) {
+  for (const id of [`mc:${pk}`, pk]) {
+    let rows = [];
+    try { rows = asArray(await mm(`${sp()}/telemetry/${encodeURIComponent(id)}?type=mc_${type}&since=${since}&limit=5000`), 'telemetry'); } catch (e) { if (e.status === 403) throw e; }
+    rows = rows.filter((r) => str(r.telemetryType).replace(/^mc_/, '') === type);
+    if (rows.length) return rows.map((r) => [toMs(r.timestamp ?? r.createdAt), Number(r.value)]).filter(([t, v]) => t && Number.isFinite(v)).sort((a, b) => a[0] - b[0]);
+  }
+  return [];
+}
+function dutyShare(points, uptime, from, to) {
+  let air = 0; let span = 0; let peak = null;
+  for (let i = 1; i < points.length; i++) {
+    const [t0, v0] = points[i - 1]; const [t1, v1] = points[i];
+    const dt = t1 - t0;
+    if (dt <= 0 || dt > TRAFFIC_GAP || v1 < v0 || (v1 - v0) * 1000 > dt * 1.02) continue; // mehr Sendezeit als Zeit: Messfehler
+    const up = uptime.get(t1);
+    if (up != null && up * 1000 < dt - 60000) continue;
+    const ov = Math.min(t1, to) - Math.max(t0, from);
+    if (ov <= 0) continue;
+    const f = ov / dt;
+    air += (v1 - v0) * 1000 * f; span += ov;
+    if (dt >= 600000) { const pct = ((v1 - v0) * 1000 / dt) * 100; if (pct <= 100 && (!peak || pct > peak.pct)) peak = { pct, at: t1 }; }
+  }
+  return span ? { pct: Math.min(100, (air / span) * 100), span, peak } : null;
+}
+async function repeaterAirtime(from, to) {
+  const favs = state.nodes.filter((n) => n.fav && (n.type === 2 || n.type === 3) && pkOf(n.id)).slice(0, 12);
+  const key = `${state.source.id}|${from}|${Math.floor(to / 120000)}|${favs.map((n) => n.id).join(',')}`;
+  if (airCache.key === key && Date.now() - airCache.at < 120000) return airCache.data;
+  const list = [];
+  let forbidden = false;
+  for (const n of favs) {
+    const pk = pkOf(n.id);
+    const row = { id: n.id, name: n.long || n.short || pk.slice(0, 8), type: n.type, tx: null, rx: null };
+    if (!forbidden) {
+      try {
+        const since = from - 3 * 3600000;
+        const [tx, rx, up] = await Promise.all(['status_air_time_secs', 'status_rx_air_time_secs', 'status_uptime_secs'].map((t) => telemetryOfType(pk, t, since)));
+        const uptime = new Map(up);
+        row.tx = dutyShare(tx, uptime, from, to);
+        row.rx = dutyShare(rx, uptime, from, to);
+        row.last = tx.length ? tx[tx.length - 1][0] : null;
+      } catch (e) { if (e.status === 403) forbidden = true; else console.error('[airtime]', n.id, e.status || '', e.message); }
+    }
+    list.push(row);
+  }
+  const data = { repeaters: list, forbidden, favs: favs.length };
+  airCache = { key, at: Date.now(), data };
+  return data;
+}
+
 async function rangeStats(q) {
   const { from, to, starts } = parseRange(q);
   const now = Date.now();
   if (Date.now() - state.lastMeta > 60000) await refreshMeta().catch(() => {});
-  const msgs = await messageStats(from, to, starts);
+  const msgs0 = await messageStats(from, to, starts);
+  const radio = await radioParams().catch(() => null);
+  // Eigene Sendezeit: aus den eigenen Nachrichten geschätzt (das Paket-Log enthält nur Empfangenes)
+  const { bytes: ownBytes, ...own } = msgs0.own || {};
+  const ownTxMs = radio && ownBytes ? ownBytes.reduce((a, [b, n]) => a + airtimeMs(b, radio) * n, 0) : null;
+  const msgs = { ...msgs0, own };
   let packets = null;
+  let airtime = null;
   if (state.source.protocol === 'meshcore') {
     try {
       const start = await packetLogStart().catch(() => null);
-      const e = await packetStats(from, to, starts);
+      const e = await packetStats(from, to, starts, radio);
       const a = e.acc;
       // Derselbe Repeater taucht je nach Hash-Größe als "b4" und "b46f" auf -> über den erkannten Node zusammenfassen
       const ranked = (map, snrMap) => {
@@ -1298,11 +1437,13 @@ async function rangeStats(q) {
         lastHop: ranked(a.lastHop, a.lastHopSnr),
         relays: ranked(a.relay),
         relayCount: a.relay.size, adverts: a.adverts, advertNodes: a.advertNodes.size, senders: a.senders.size,
+        air: radio ? { ms: a.airMs, perBucket: a.airBucket.map((v) => Math.round(v)), ownTxMs: ownTxMs != null ? Math.round(ownTxMs) : null } : null,
         farDirect: a.farDirect, maxHops: a.maxHops ? { ...a.maxHops, path: a.maxHops.path.map((h) => nameForHash(h) || `#${h}`), points: [...a.maxHops.path.map((h) => ({ hash: h, label: nameForHash(h) || `#${h}` })), { me: true }] } : null,
       };
     } catch (e) {
       if (e.status === 403) packets = { error: 'forbidden' }; else { console.error('[stats] Pakete:', e.status || '', e.message); packets = { error: e.message }; }
     }
+    try { airtime = await repeaterAirtime(from, to); } catch (e) { console.error('[stats] Airtime:', e.status || '', e.message); }
   }
   // "Zuletzt gehört" kennt nur den neuesten Zeitpunkt -> nur für Zeiträume, die bis jetzt reichen
   let nodes = null;
@@ -1312,7 +1453,13 @@ async function rangeStats(q) {
     for (const n of heard) byType[n.type ?? 0] = (byType[n.type ?? 0] || 0) + 1;
     nodes = { heard: heard.length, known: state.nodes.length, byType };
   }
-  return { from, to, starts, generated: now, source: state.source.name, msgs, packets, nodes };
+  // Neu im Netz: zum ersten Mal auf dieser Quelle gehört (firstHeard, neuere MeshMonitor). Ohne das Feld: null.
+  let newNodes = null;
+  if (state.nodes.some((n) => n.firstHeard)) {
+    const fresh = state.nodes.filter((n) => n.id !== state.me && n.firstHeard >= from && n.firstHeard < to).sort((a, b) => b.firstHeard - a.firstHeard);
+    newNodes = { n: fresh.length, list: fresh.slice(0, 10).map((n) => ({ id: n.id, name: n.long || n.short || n.id.slice(3, 11), type: n.type, at: n.firstHeard, pos: Boolean(posOf(n)) })) };
+  }
+  return { from, to, starts, generated: now, source: state.source.name, msgs, packets, nodes, newNodes, airtime, radio };
 }
 
 // Weg einer empfangenen Nachricht mit Repeater-Namen
@@ -1452,6 +1599,96 @@ function applyDelivery(m) {
   if (d.rtt != null) m.rtt = d.rtt;
   return before !== `${m.state}|${m.rtt ?? ''}`;
 }
+// ---------------------------------------------------------------- Gehörte Kopien eigener DMs (Flood oder fester Weg)
+// MeshMonitor (heardBy) liest den Weg jeder gehörten Kopie als "diese Repeater haben sie getragen". Das stimmt bei
+// Flood (jeder Repeater hängt sich an). Über einen festen Weg streicht sich aber jeder Repeater vor dem Weitersenden
+// selbst aus dem Weg (MeshCore removeSelfFromPath) – die Kopie nennt dann den RESTWEG, und der SNR gehört dem
+// Repeater, der gar nicht mehr drinsteht. Darum: die gehörten Kopien im Paket-Log suchen (TXT_MSG, eigener
+// Absender-Hash, im Zeitfenster, Weg nur aus Repeatern, die heardBy nennt) und nach Routenart trennen.
+// Findet sich nichts (Paket-Log nicht lesbar, schon gelöscht), bleibt die Liste von MeshMonitor (mode = null).
+const DM_ECHO_WINDOW_MS = 40000;
+function applyDmEcho(m) {
+  const ec = state.dmEcho.get(m.id);
+  m.heard = ec?.mode ? ec.heard : state.dmHeard.get(m.id) || [];
+  m.heardDirect = ec?.mode ? ec.direct : [];
+  m.heardMode = ec?.mode || null;
+}
+const dmEchoQueue = new Set();
+let dmEchoBusy = false;
+function queueDmEcho(id) {
+  const m = state.msgs.get(id)?.msg;
+  if (!m?.mine || !m.dm || state.source?.protocol !== 'meshcore' || Date.now() - m.ts > 6 * 3600000) return;
+  dmEchoQueue.add(id);
+  if (!dmEchoBusy) runDmEchoQueue();
+}
+async function runDmEchoQueue() {
+  dmEchoBusy = true;
+  try {
+    while (dmEchoQueue.size) {
+      const id = dmEchoQueue.values().next().value;
+      dmEchoQueue.delete(id);
+      try { await classifyDmEcho(id); } catch (e) { if (e.status !== 403) console.error('[dm-echo]', e.status || '', e.message); }
+    }
+  } finally { dmEchoBusy = false; }
+}
+// Weg-Abschnitt "rest" im bekannten Weg suchen: der Repeater direkt davor hat die Kopie gesendet
+function directVia(route, rest) {
+  const hs = (route || []).map((h) => h.hash);
+  for (let k = 1; k + rest.length <= hs.length; k++) {
+    if (k + rest.length === hs.length && rest.every((h, i) => hs[k + i] === h)) return route[k - 1];
+  }
+  return null;
+}
+async function classifyDmEcho(id) {
+  const e = state.msgs.get(id);
+  const list = state.dmHeard.get(id) || [];
+  const mePk = pkOf(state.me);
+  if (!e || !list.length || !mePk) return;
+  const m = e.msg;
+  const known = new Set(list.map((h) => h.hash));
+  const starts = [m.ts, ...(state.resendAt.get(id) || [])];
+  const inWin = (t) => starts.some((s) => t >= s - 3000 && t <= s + DM_ECHO_WINDOW_MS);
+  const j = await mm(`${sp()}/packets?since=${Math.min(...starts) - 3000}&payload_type=2&limit=500`);
+  const src = mePk.slice(0, 2);
+  const flood = new Map();
+  const direct = new Map();
+  const route = state.dmRoute.get(id)?.hops || null;
+  for (const p of asArray(j, 'packets')) {
+    const t = toMs(p.timestamp);
+    if (!t || !inWin(t)) continue;
+    if (p.payload_type_name && p.payload_type_name !== 'TXT_MSG') continue;
+    if (p.src_hash != null && str(p.src_hash).toLowerCase() !== src) continue;
+    const path = (Array.isArray(p.path_hops) ? p.path_hops : []).map((x) => str(x).toLowerCase()).filter(Boolean);
+    if (!path.length || !path.every((h) => known.has(h))) continue;
+    const snr = p.snr == null || !Number.isFinite(Number(p.snr)) ? null : Number(p.snr);
+    if (/DIRECT/.test(str(p.route_type_name))) {
+      const k = path.join(',');
+      const d = direct.get(k) || { snr: null, rest: path.map((h) => ({ hash: h, name: nameForHash(h) })), via: null };
+      if (snr != null) d.snr = d.snr == null ? snr : Math.max(d.snr, snr);
+      const v = directVia(route, path);
+      if (v) d.via = { hash: v.hash, name: v.name || nameForHash(v.hash) };
+      direct.set(k, d);
+    } else {
+      path.forEach((h, i) => {
+        const x = flood.get(h) || { hash: h, name: nameForHash(h), snr: null, hops: i + 1 };
+        x.hops = Math.min(x.hops, i + 1);
+        if (i === path.length - 1 && snr != null) x.snr = x.snr == null ? snr : Math.max(x.snr, snr);
+        flood.set(h, x);
+      });
+    }
+  }
+  const mode = flood.size && direct.size ? 'mixed' : direct.size ? 'direct' : flood.size ? 'flood' : null;
+  const heard = [...flood.values()].sort((a, b) => a.hops - b.hops || (b.snr ?? -99) - (a.snr ?? -99));
+  const ec = { mode, heard, direct: [...direct.values()].sort((a, b) => (b.snr ?? -99) - (a.snr ?? -99)).slice(0, 8) };
+  const before = JSON.stringify(state.dmEcho.get(id) || null);
+  if (!mode && !state.dmEcho.has(id)) return; // nichts gefunden: MeshMonitor-Liste bleibt
+  state.dmEcho.set(id, ec);
+  if (JSON.stringify(ec) === before) return;
+  applyDmEcho(m);
+  e.sig = JSON.stringify(m);
+  broadcast('messages', [m]);
+}
+
 // ---------------------------------------------------------------- Live-Pakete für die Karte
 // MeshMonitor schickt "packet:flight" nur über Socket.io. Dieselben Angaben stehen im Paket-Log der v1-API:
 // solange eine Karte "Live" anfragt (letzte 20 s), alle 3 s die neuen Pakete holen – EIN Abruf für alle Geräte.
@@ -1540,8 +1777,8 @@ async function fetchReactions(full) {
     if (Array.isArray(r.heardBy) && r.heardBy.length && (r.channel === -1 || r.toPublicKey || r.isDm || state.msgs.get(str(r.id))?.msg.dm)) {
       const list = r.heardBy.slice(0, 32).map((h) => {
         const hash = str(h?.hash).toLowerCase().slice(0, 16);
-        return hash ? { hash, name: str(h.name) || nameForHash(hash) || null, snr: Number.isFinite(Number(h.snr)) && h.snr != null ? Number(h.snr) : null, hops: Number.isFinite(Number(h.hops)) && h.hops != null ? Number(h.hops) : 1 } : null;
-      }).filter(Boolean).sort((a, b) => a.hops - b.hops || (b.snr ?? -99) - (a.snr ?? -99));
+        return hash ? { hash, name: str(h.name) || nameForHash(hash) || null, snr: Number.isFinite(Number(h.snr)) && h.snr != null ? Number(h.snr) : null, hops: Number.isFinite(Number(h.hops)) && h.hops != null ? Number(h.hops) + 1 : null } : null;
+      }).filter(Boolean).sort((a, b) => (a.hops ?? 99) - (b.hops ?? 99) || (b.snr ?? -99) - (a.snr ?? -99));
       if (JSON.stringify(list) !== JSON.stringify(state.dmHeard.get(str(r.id)) || [])) { state.dmHeard.set(str(r.id), list); state.dmHeardDirty.add(str(r.id)); }
     }
     const ds = str(r.deliveryStatus).toLowerCase();

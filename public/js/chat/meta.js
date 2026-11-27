@@ -89,11 +89,13 @@ export async function resend(id) {
   setTimeout(scheduleRender, RESEND_COOLDOWN_MS + 500);
 }
 
-// Eigene Kanalnachricht (und eigene DM, sobald MeshMonitor Repeater kennt): von welchen Repeatern hörbar weitergesendet (📡)
+// Eigene Kanalnachricht (und eigene DM, sobald MeshMonitor Repeater kennt): von welchen Repeatern hörbar weitergesendet.
+// DM über einen festen Weg: gehörte Kopien stehen in heardDirect (Server trennt nach Routenart, siehe classifyDmEcho).
+const heardCount = (m) => (m.heard || []).length + (m.heardDirect || []).length;
 export function heardBadge(m) {
   if (!isMine(m) && !isOwnOther(m) && S.source?.protocol === 'meshcore') return routeBadge(m);
   if (S.source?.protocol !== 'meshcore' || !isMine(m) || m.id.startsWith('tmp-')) return '';
-  const n = (m.heard || []).length;
+  const n = heardCount(m);
   if (m.dm && !n) {
     // DM ohne gehörte Repeater: nach der Zustellung den Weg zum Empfänger zeigen (sonst nichts – stört nur)
     const o = m.outRoute;
@@ -105,17 +107,30 @@ export function heardBadge(m) {
   const title = n ? T('heard.byTitle', { n }) : waiting ? T('heard.waiting') : T('heard.none');
   return `<button class="heard ${n ? '' : 'heard-none'} ${waiting ? 'heard-wait' : ''}" data-heard="${esc(m.id)}" title="${esc(title)}" aria-expanded="${S.expanded.has(m.id)}">${ic('radio')}${waiting ? '…' : n}</button>`;
 }
+const snrCell = (snr) => `<span class="heard-snr">${snr != null ? `SNR ${esc(snr)}` : ''}</span>`;
+const relayName = (r) => `${esc(relayLabel(r))}${r.name ? `<small>${esc(r.hash)}</small>` : ''}`;
 export function heardList(m) {
   if (!S.expanded.has(m.id)) return '';
   if (!isMine(m)) return routeList(m);
   const list = m.heard || [];
+  const direct = m.heardDirect || [];
   const out = m.dm ? outRouteList(m) : '';
-  if (!list.length && out) return out;
-  if (!list.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - echoSince(m) < ECHO_WINDOW_MS ? T('heard.waiting') : T('heard.noneLong')}</div></div>`;
-  return `${out}<div class="heard-list">
-    <div class="heard-head">${T('heard.via', { n: list.length })}</div>
-    ${list.map((r) => `<div class="heard-row"><span class="heard-hop" title="${esc(T('heard.posTitle'))}">${r.hops}</span><span class="heard-name">${esc(relayLabel(r))}${r.name ? `<small>${esc(r.hash)}</small>` : ''}</span><span class="heard-snr">${r.snr != null ? `SNR ${esc(r.snr)}` : r.hops === 1 ? T('common.direct') : ''}</span></div>`).join('')}
-  </div>`;
+  if (!list.length && !direct.length && out) return out;
+  if (!list.length && !direct.length) return `<div class="heard-list"><div class="heard-empty">${Date.now() - echoSince(m) < ECHO_WINDOW_MS ? T('heard.waiting') : T('heard.noneLong')}</div></div>`;
+  // Fester Weg: die Kopie nennt nur den Restweg; gesendet hat der Repeater davor (bekannt, wenn er im Weg steht)
+  const directPart = direct.length ? `
+    <div class="heard-head">${T('heard.directHead')}</div>
+    ${direct.map((d) => `<div class="heard-row"><span class="heard-hop">${ic('radio')}</span><span class="heard-name">${d.via ? relayName(d.via) : esc(T('heard.directVia'))}${d.rest.length ? `<small class="heard-rest">${esc(T('heard.restPath', { path: d.rest.map(relayLabel).join(' › ') }))}</small>` : ''}</span>${snrCell(d.snr)}</div>`).join('')}
+    <div class="heard-empty">${T('heard.directNote')}</div>` : '';
+  // Flood (und Kanal): mit SNR = selbst gehört; ohne SNR = stand nur im Weg einer gehörten Kopie
+  const self = list.filter((r) => r.snr != null);
+  const seen = list.filter((r) => r.snr == null);
+  const row = (r) => `<div class="heard-row"><span class="heard-hop" title="${esc(T('heard.posTitle'))}">${r.hops ?? '·'}</span><span class="heard-name">${relayName(r)}</span>${snrCell(r.snr)}</div>`;
+  const floodPart = list.length ? `
+    ${self.length ? `<div class="heard-head">${T('heard.selfHead', { n: self.length })}</div>${self.map(row).join('')}` : ''}
+    ${seen.length ? `<div class="heard-head">${T('heard.pathHead', { n: seen.length })}</div>${seen.map(row).join('')}` : ''}
+    <div class="heard-empty">${T('heard.posNote')}${m.dm && !m.heardMode ? ` ${T('heard.unsure')}` : ''}</div>` : '';
+  return `${out}<div class="heard-list">${directPart}${floodPart}</div>`;
 }
 // Zugestellte eigene DM: Weg zum Empfänger, wie ihn der Empfänger mit der Bestätigung zurückgemeldet hat
 function outRouteList(m) {

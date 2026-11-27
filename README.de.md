@@ -50,8 +50,10 @@ Pakete aus, die dein Companion empfangen hat. Es braucht keine zusätzlichen Nod
 🧭 **Werkzeuge für Bastler.** Eigene Traceroute über selbst gewählte Repeater mit SNR hin und zurück, Repeater-Status,
 Verläufe und Paketverkehr pro Stunde und Tag, Nachbarlisten, Direkt-Ping, Pfad zurücksetzen und eine DM per Flood neu senden, Advert senden.
 
-📊 **Statistik.** Heute, gestern oder 7 Tage: Nachrichten und Pakete je Stunde, Rekorde (weitester Absender,
-längster Weg …), Pakettypen, SNR/RSSI. Lässt sich als **PDF** speichern.
+📊 **Statistik.** Heute, gestern oder 7 Tage. Oben **auf einen Blick** in ganzen Sätzen, was los war. Dazu: ob deine
+DMs angekommen sind, wie viele Repeater deine Kanalnachrichten weitergeben, **Funk-Auslastung** bei dir und die
+**Sendezeit deiner Favoriten-Repeater** gegen die 10-%-Grenze, **neu im Netz**, Nachrichten und Pakete je Stunde,
+Rekorde, Pakettypen, SNR/RSSI. Jede Karte erklärt sich mit **?** selbst. Lässt sich als **PDF** speichern.
 
 🔔 **Push.** Bei DMs, Erwähnungen und Reaktionen auf deine Nachrichten; pro Chat einstellbar. Dazu gibt es einen
 **Repeater-Wächter**, der meldet, wenn ein Favoriten-Repeater verstummt oder sein Akku schwächelt.
@@ -237,8 +239,11 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
   mit Position im Weg und SNR. Einen SNR-Wert gibt es nur für die Station, die dein Gerät direkt gehört hat. Die übrigen
   stehen nur im Weg. Zugeordnet wird über die verschlüsselten Bytes des Pakets, die bei jeder Kopie gleich sind. So zählen
   auch Echos nach einem Resend, und jemand, der zur selben Zeit denselben Text schreibt, wird nicht mitgezählt.
-- **Eigene DM:** Das Antennen-Symbol erscheint, sobald MeshMonitor Repeater-Echos gehört hat. Nach der Zustellung (✓✓) steht in den
-  Details der **Weg zum Empfänger**, den der Empfänger mit der Bestätigung zurückmeldet. Eine eigene DM lange
+- **Eigene DM:** Das Antennen-Symbol erscheint, sobald MeshMonitor Repeater-Echos gehört hat. MeshLink sucht die gehörten
+  Kopien im Paket-Log und trennt nach **Flood** und **festem Weg**: Auf einem festen Weg streicht sich jeder Repeater vor
+  dem Weitersenden selbst aus dem Weg, die gehörte Kopie nennt dann nur noch den Rest. MeshLink zeigt deshalb den
+  Repeater, der wirklich gesendet hat, mit seinem SNR und dahinter den Restweg. Nach der Zustellung (✓✓) steht in den
+  Details der **Weg zum Empfänger**, den der Empfänger mit der Bestätigung zurückmeldet (gilt ab da für neue DMs). Eine eigene DM lange
   drücken bietet **Pfad zurücksetzen** und, solange sie nicht zugestellt ist, **per Flood neu senden**.
 - **Empfangen:** `↳ 2 Hops · 1B` zeigt den Weg zu dir und die Hash-Größe (1/2/3 Byte je Repeater-Kennung).
   „Weg auf Karte zeigen“ zeigt die Strecke mit Luftlinie je Teilstück.
@@ -313,6 +318,12 @@ Vor jeder Übertragung prüft das Skript die Syntax aller Dateien. Dabei geht ni
   fällt, und eine Entwarnung, wenn es wieder passt.
 - **Statistik:** Heute, Gestern oder 7 Tage, bei jedem Öffnen frisch berechnet. Paketzahlen reichen nur so weit wie das
   Paket-Log von MeshMonitor (Standard 24 h / 1000 Pakete). **⤓ PDF** öffnet den Druckdialog mit A4-Layout.
+  - **Funk-Auslastung:** aus allen gehörten Paketen und den Funkeinstellungen deines Geräts (SF, Bandbreite, CR) berechnet,
+    wie lange Funk in der Luft war. Die Einstellungen liest MeshLink aus MeshMonitor (braucht das Recht „Verbindung lesen“).
+    Die eigene Sendezeit steht nicht im Paket-Log und wird aus deinen Nachrichten geschätzt.
+  - **Sendezeit der Favoriten-Repeater:** aus ihren eigenen Zählern (Sende- und Empfangszeit seit dem Start), die MeshMonitor
+    als Status-Telemetrie speichert. Geht nur für Repeater, deren Status MeshMonitor regelmäßig abholt.
+  - **Neu im Netz:** Knoten, die MeshMonitor im Zeitraum zum ersten Mal gehört hat (braucht ein MeshMonitor mit `firstHeard`).
 - **Erwähnungen:** alle `@`-Erwähnungen der letzten 7 Tage über alle Kanäle.
 - **Room-Server:** Beiträge lesen auch ohne Anmeldung, zum Schreiben anmelden. Unter dem Anmelden steht der Weg zum Room.
 - **Meine weiteren Nodes:** eigene Zweitgeräte. Sie erscheinen als „via …“, ohne Zähler und ohne Push.

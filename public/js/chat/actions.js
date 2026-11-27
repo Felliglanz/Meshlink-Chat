@@ -26,6 +26,17 @@ function startReply(m) {
 const canSwipeReply = (m) => m && !m.id.startsWith('tmp-') && !(S.source?.protocol === 'meshcore' && isMine(m));
 const SWIPE_START = 14; const SWIPE_ARM = 56; const SWIPE_MAX = 84;
 
+// Info-Blatt: selbst gehörte Repeater (mit SNR), dazu Kopien über einen festen Weg
+function heardText(m) {
+  const parts = [
+    ...(m.heardDirect || []).map((d) => `${d.via ? relayLabel(d.via) : T('heard.directVia')}${d.snr != null ? ` (SNR ${d.snr})` : ''}`),
+    ...(m.heard || []).filter((r) => r.snr != null).map((r) => `${relayLabel(r)} (SNR ${r.snr})`),
+  ];
+  const seen = (m.heard || []).filter((r) => r.snr == null).length;
+  if (!parts.length && !seen) return T('info.noRepeater');
+  return `${parts.join(', ')}${seen ? `${parts.length ? ' · ' : ''}${T('info.pathOnly', { n: seen })}` : ''}`;
+}
+
 export function setupMessageGestures() {
   const el = $('#msgs');
   let timer = null; let start = null;
@@ -217,7 +228,7 @@ function openInfo(m) {
       ${row('RSSI', m.rssi)}
       ${row('Status', ({ sent: m.dm ? (Date.now() - m.ts < 10 * 60000 ? T('info.sentWait') : T('info.sentNoAck')) : T('info.sentChannel'), delivered: `${T('info.delivered')}${m.rtt != null ? ` ${T('info.rtt', { s: (m.rtt / 1000).toLocaleString(LOC, { maximumFractionDigits: 1 }) })}` : ''}`, pending: T('info.pending'), failed: T('info.failed') })[m.state] || m.state)}
       ${row(T('info.packetId'), m.packetId)}
-      ${isMine(m) && (!m.dm || (m.heard || []).length) && S.source?.protocol === 'meshcore' ? row(T('info.heardBy'), (m.heard || []).length ? m.heard.map((r) => `${relayLabel(r)}${r.snr != null ? ` (SNR ${r.snr})` : ''}`).join(', ') : T('info.noRepeater')) : ''}
+      ${isMine(m) && (!m.dm || (m.heard || []).length || (m.heardDirect || []).length) && S.source?.protocol === 'meshcore' ? row(T('info.heardBy'), heardText(m)) : ''}
     </div>
     <button class="sheet-btn cancel" data-close>${T('common.close')}</button>`);
 }

@@ -252,11 +252,21 @@
   "heard.waiting": "Warte auf Repeater …",
   "heard.none": "Kein Repeater gehört",
   "heard.noneLong": "Kein Repeater hat diese Nachricht hörbar weitergesendet.",
-  "heard.via": {
-    "one": "Gehört über {n} Repeater",
-    "other": "Gehört über {n} Repeater"
-  },
   "heard.posTitle": "Position im Weg",
+  "heard.directHead": "Über festen Weg weitergegeben",
+  "heard.directVia": "Erster Repeater im Weg",
+  "heard.restPath": "danach: {path}",
+  "heard.directNote": "Der SNR gilt für den Repeater, der weitergegeben hat. Die gehörte Kopie nennt nur noch den Rest des Wegs.",
+  "heard.selfHead": {
+    "one": "Selbst gehört · {n} Repeater",
+    "other": "Selbst gehört · {n} Repeater"
+  },
+  "heard.pathHead": {
+    "one": "Nur im Weg gesehen · {n}",
+    "other": "Nur im Weg gesehen · {n}"
+  },
+  "heard.posNote": "1 = erster Repeater nach dir · mit SNR = selbst gehört, ohne = stand nur im Weg.",
+  "heard.unsure": "Ob die DM per Flood oder über einen festen Weg lief, ist hier nicht bekannt (Paket-Log nicht lesbar).",
   "info.to": "An",
   "info.noScope": "ohne Scope",
   "info.hashSize": "Hash-Größe im Weg",
@@ -271,6 +281,10 @@
   "info.packetId": "Paket-ID",
   "info.heardBy": "Gehört von",
   "info.noRepeater": "keinem Repeater",
+  "info.pathOnly": {
+    "one": "{n} nur im Weg",
+    "other": "{n} nur im Weg"
+  },
   "lang.title": "Sprache",
   "lang.auto": "Automatisch",
   "lang.autoSub": "Wie im Browser eingestellt",
@@ -490,7 +504,7 @@
   "out.floodNote": "Dein Gerät kennt keinen festen Weg – es schickt per Flood über alle Repeater.",
   "out.directNote": "Direkt zugestellt, ohne Repeater.",
   "out.to": "Weg zu {name}",
-  "out.reported": "Gemeldet mit der Zustellbestätigung – diesen Weg nutzt dein Gerät für DMs an {name}.",
+  "out.reported": "Gemeldet mit der Zustellbestätigung – diesen Weg nutzt dein Gerät ab jetzt für DMs an {name}. Die Nachricht selbst kann noch anders gelaufen sein.",
   "out.reset": "↺ Pfad zurücksetzen (nächste DM per Flood)",
   "own.title": "Meine weiteren Nodes",
   "own.text": "Nachrichten dieser Absender erscheinen rechts mit „via …“, ohne Ungelesen-Zähler und Benachrichtigung. Gesendet wird immer über {src}.",
@@ -936,6 +950,70 @@
   "stats.fileWeek": "7-Tage",
   "stats.fileName": "MeshLink-Statistik {tag} {day}",
   "stats.noPrint": "Drucken wird hier nicht unterstützt – im Browser öffnen",
+  "stats.glance": "Auf einen Blick",
+  "stats.gMsgs": "{msgs} von {senders}.",
+  "stats.nMsgsG": {
+    "one": "{num} Nachricht",
+    "other": "{num} Nachrichten"
+  },
+  "stats.nSendersG": {
+    "one": "{num} Absender",
+    "other": "{num} Absendern"
+  },
+  "stats.gQuiet": "Noch keine Nachrichten in diesem Zeitraum.",
+  "stats.gNodes": {
+    "one": "{num} Knoten im Funk gehört.",
+    "other": "{num} Knoten im Funk gehört."
+  },
+  "stats.gNodesNew": {
+    "one": "{num} Knoten im Funk gehört, {fresh} davon zum ersten Mal.",
+    "other": "{num} Knoten im Funk gehört, {fresh} davon zum ersten Mal."
+  },
+  "stats.gDm": "Deine DMs: {ok} von {n} sind angekommen.",
+  "stats.gDmFail": "Deine DMs: {ok} von {n} sind angekommen, {failed} ohne Bestätigung.",
+  "stats.gReach": "Deine Kanalnachrichten wurden im Schnitt von {avg} Repeatern weitergesendet.",
+  "stats.gAir": "Funk bei dir: {pct} der Zeit belegt – {level}.",
+  "stats.gRepOver": "{name} sendet {pct} der Zeit – über der 10-%-Grenze.",
+  "stats.gRepOk": "Deine Favoriten-Repeater bleiben unter 10 % Sendezeit (am meisten: {name} mit {pct}).",
+  "stats.airCalm": "ruhig",
+  "stats.airNormal": "normal",
+  "stats.airBusy": "viel los",
+  "stats.airFull": "sehr voll, Pakete stören sich öfter",
+  "stats.helpAria": "Was heißt das?",
+  "stats.ownTitle": "Deine Nachrichten",
+  "stats.dmSent": "DMs gesendet",
+  "stats.dmOk": "angekommen",
+  "stats.dmFail": "ohne Bestätigung",
+  "stats.dmRtt": "Ø bis zur Bestätigung",
+  "stats.reachAvg": "Ø Repeater je Kanalnachricht",
+  "stats.reachMax": "höchstens Repeater",
+  "stats.reachZero": "von keinem gehört",
+  "stats.dmOpen": {
+    "one": "Bei {num} DM ist der Stand unbekannt (zu alt oder noch unterwegs).",
+    "other": "Bei {num} DMs ist der Stand unbekannt (zu alt oder noch unterwegs)."
+  },
+  "stats.reachPartial": "Weitersenden bekannt für {k} von {n} Kanalnachrichten.",
+  "stats.airTitle": "Funk-Auslastung",
+  "stats.radioLine": "SF{sf} · {bw} kHz · CR 4/{cr}",
+  "stats.airHere": "der Zeit war bei dir Funk in der Luft – {level}",
+  "stats.nounAir": "belegt",
+  "stats.airOwn": "Dein Gerät hat geschätzt {s} s gesendet (aus deinen Nachrichten berechnet).",
+  "stats.airNoPk": "Für diesen Zeitraum gibt es keine Pakete im Paket-Log.",
+  "stats.airNoRadio": "Die Funkeinstellungen deines Geräts sind nicht lesbar (MeshMonitor-Recht „Verbindung lesen“ fehlt) – ohne sie lässt sich die Sendezeit nicht berechnen.",
+  "stats.dutyHead": "Sendezeit deiner Favoriten-Repeater",
+  "stats.dutyAria": "{name}: {pct} Sendezeit, Markierung bei 10 %",
+  "stats.dutyRx": "Empfang {pct}",
+  "stats.dutyPeak": "Spitze {pct}",
+  "stats.dutySpan": "Messwerte für {h} Std.",
+  "stats.dutyNone": "Keine Messwerte – MeshMonitor holt den Status dieses Repeaters nicht regelmäßig ab.",
+  "stats.dutyForbidden": "Die Telemetrie der Repeater ist für den API-Token nicht lesbar.",
+  "stats.newTitle": "Neu im Netz",
+  "stats.newSub": {
+    "one": "{num} Knoten",
+    "other": "{num} Knoten"
+  },
+  "stats.newNone": "In diesem Zeitraum ist kein neuer Knoten aufgetaucht.",
+  "stats.gReachNone": "Deine Kanalnachrichten hat kein Repeater hörbar weitergesendet.",
   "status.connecting": "Verbinde …",
   "status.mmDown": "MeshMonitor nicht erreichbar",
   "status.connected": "verbunden",
@@ -999,5 +1077,21 @@
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
   "node.heardVia": "Empfangen über",
-  "node.dmRoute": "Weg für DMs"
+  "node.dmRoute": "Weg für DMs",
+  "help.own": "Was aus deinen eigenen Nachrichten wurde: Eine DM gilt als angekommen, wenn der Empfänger eine Bestätigung (ACK) zurückschickt. Bei Kanalnachrichten gibt es keine Bestätigung – hier zählt, wie viele Repeater dein Gerät beim Weitersenden gehört hat.",
+  "help.air": "Wie viel Prozent der Zeit auf deiner Frequenz gesendet wurde, so wie dein Gerät es hört – berechnet aus allen empfangenen Paketen und den Funkeinstellungen. Unter 5 % ist entspannt; ab etwa 30 % stören sich Pakete häufig gegenseitig.",
+  "help.duty": "In Europa darf ein Gerät auf 869,4–869,65 MHz höchstens 10 % der Zeit senden (Duty Cycle). Jeder MeshCore-Repeater zählt seine Sendezeit selbst mit; MeshMonitor speichert diese Werte. Der Strich markiert 10 %. „Empfang“ zeigt, wie belegt der Funk am Standort des Repeaters ist.",
+  "help.new": "Knoten, die MeshMonitor in diesem Zeitraum zum allerersten Mal gehört hat – neue Teilnehmer, neue Repeater oder Geräte, die neu eingerichtet wurden.",
+  "help.msgs": "Alle Nachrichten in Kanälen und DMs, die über dein Gerät liefen, verteilt auf den Zeitraum. Antippen zeigt den genauen Wert.",
+  "help.records": "Besonderheiten des Zeitraums: z. B. woher die weiteste Nachricht kam oder über wie viele Repeater (Hops) ein Paket gereist ist. Für Entfernungen braucht dein Gerät eine Position.",
+  "help.channels": "In welchen Kanälen am meisten geschrieben wurde.",
+  "help.senders": "Wer am meisten geschrieben hat (nur Nachrichten, die dein Gerät empfangen hat).",
+  "help.detail": "Hops = über wie viele Repeater eine Nachricht gereist ist; 0 = direkt gehört. Kennung = wie lang die Repeater-Kürzel im Weg sind (1–3 Byte, länger = eindeutiger).",
+  "help.pk": "Alles, was dein Gerät gefunkt gehört hat – nicht nur Nachrichten, auch Adverts (Ich-bin-da-Meldungen), Bestätigungen und Wegsuchen.",
+  "help.radio": "SNR = wie deutlich ein Signal über dem Rauschen liegt (höher ist besser; LoRa versteht noch Signale unter 0 dB). RSSI = Signalstärke in dBm. Flood = an alle Repeater, direkt = über einen festen Weg.",
+  "help.pkTypes": "Welche Arten von Paketen unterwegs waren. Viele Adverts sind normal – jedes Gerät meldet sich regelmäßig.",
+  "help.howFar": "Über wie viele Repeater die gehörten Pakete kamen. Direkt = ohne Repeater, vom Absender selbst.",
+  "help.lastHop": "Von welchen Repeatern dein Gerät die Pakete direkt empfängt – deine wichtigsten Nachbarn. Dazu der beste SNR.",
+  "help.relays": "Welche Repeater in den Wegen der gehörten Pakete vorkamen – egal wie weit weg.",
+  "help.heardNodes": "Wie viele Knoten welcher Art im Zeitraum gehört wurden."
 }

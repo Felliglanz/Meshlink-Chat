@@ -95,14 +95,14 @@ const bucketLabel = (t, unit) => (unit === 'hour'
   : new Date(t).toLocaleDateString(LOC, { weekday: 'short', day: '2-digit', month: '2-digit' }));
 
 // Balken je Stunde bzw. Tag. Antippen/Überfahren zeigt den Wert in der Kopfzeile.
-function bucketBars(values, starts, unit, noun) {
+function bucketBars(values, starts, unit, noun, fmt = nf) {
   const max = Math.max(1, ...values);
   const now = Date.now();
   const n = values.length;
   const bars = values.map((v, i) => {
     const end = starts[i + 1] ?? (unit === 'hour' ? starts[i] + 3600000 : addDays(new Date(starts[i]), 1).getTime());
     const cls = starts[i] > now ? 'future' : end > now ? 'now' : '';
-    const tip = `${bucketLabel(starts[i], unit)}: ${nf(v)}`;
+    const tip = `${bucketLabel(starts[i], unit)}: ${fmt(v)}`;
     return `<div class="hbar ${cls}" data-tip="${esc(tip)}" title="${esc(tip)} ${esc(noun)}"><i style="height:${v ? Math.max(4, (v / max) * 100) : 0}%"></i></div>`;
   }).join('');
   let axis;
@@ -174,12 +174,83 @@ function drawStats() {
     : T('stats.covFrom', { date: esc(covText) })}
     <small>${T('stats.covSetting')}</small></div>` : '';
 
+  // ---- Neue Teile: auf einen Blick, deine Nachrichten, Funk-Auslastung, neu im Netz
+  const own = m.own || {};
+  const pct = (v) => (v > 0 && v < 0.1 ? `< ${nf(0.1, 1)} %` : `${nf(v, v < 10 ? 1 : 0)} %`);
+  const end = Math.min(st.to, st.generated);
+  const airFrom = cov && cov > st.from ? cov : st.from;
+  const air = pk?.air && end > airFrom ? { ...pk.air, pct: (pk.air.ms / (end - airFrom)) * 100 } : null;
+  const airLevel = (v) => T(v < 5 ? 'stats.airCalm' : v < 15 ? 'stats.airNormal' : v < 30 ? 'stats.airBusy' : 'stats.airFull');
+  const reps = (st.airtime?.repeaters || []).filter((r) => r.tx);
+  const over = reps.filter((r) => r.tx.pct >= 10).sort((a, b) => b.tx.pct - a.tx.pct);
+  const glance = [];
+  glance.push([ 'chat', m.total ? T('stats.gMsgs', { msgs: T('stats.nMsgsG', { n: m.total, num: nf(m.total) }), senders: T('stats.nSendersG', { n: m.senders, num: nf(m.senders) }) }) : T('stats.gQuiet') ]);
+  if (st.nodes) glance.push(['people', st.newNodes?.n ? T('stats.gNodesNew', { n: st.nodes.heard, num: nf(st.nodes.heard), fresh: nf(st.newNodes.n) }) : T('stats.gNodes', { n: st.nodes.heard, num: nf(st.nodes.heard) })]);
+  const dmKnown = own.dm ? own.dm.ok + own.dm.failed : 0;
+  if (dmKnown) glance.push(['mail', T(own.dm.failed ? 'stats.gDmFail' : 'stats.gDm', { ok: nf(own.dm.ok), n: nf(dmKnown), failed: nf(own.dm.failed) })]);
+  if (own.reach) glance.push(['radio', own.reach.max ? T('stats.gReach', { avg: nf(own.reach.avg, 1) }) : T('stats.gReachNone')]);
+  if (air) glance.push(['pulse', T('stats.gAir', { pct: pct(air.pct), level: airLevel(air.pct) })]);
+  if (over.length) glance.push(['warn', T('stats.gRepOver', { name: over[0].name, pct: pct(over[0].tx.pct) })]);
+  else if (reps.length) { const top = [...reps].sort((a, b) => b.tx.pct - a.tx.pct)[0]; glance.push(['check', T('stats.gRepOk', { name: top.name, pct: pct(top.tx.pct) })]); }
+
+  // Kopf einer Karte mit optionaler Erklärung ("?" klappt einen Satz auf)
+  const head = (title, sub = '', help = '') => `<div class="card-head"><b>${title}</b><span class="card-head-r">${sub}${help ? `<button class="help-btn" data-help aria-expanded="false" aria-label="${esc(T('stats.helpAria'))}" title="${esc(T('stats.helpAria'))}">?</button>` : ''}</span></div>${help ? `<div class="card-help" hidden>${esc(T(help))}</div>` : ''}`;
+  const small = (t) => (t ? `<small>${t}</small>` : '');
+
+  const ownCard = own.dm || own.reach ? `
+    <section class="card">
+      ${head(T('stats.ownTitle'), '', 'help.own')}
+      <div class="stat-grid">
+        ${own.dm ? `<div><small>${T('stats.dmSent')}</small><b>${nf(own.dm.sent)}</b></div>
+        <div><small>${T('stats.dmOk')}</small><b>${nf(own.dm.ok)}${dmKnown ? ` <em>${pct((own.dm.ok / dmKnown) * 100)}</em>` : ''}</b></div>
+        ${own.dm.failed ? `<div><small>${T('stats.dmFail')}</small><b>${nf(own.dm.failed)}</b></div>` : ''}
+        ${own.dm.rtt != null ? `<div><small>${T('stats.dmRtt')}</small><b>${nf(own.dm.rtt / 1000, 1)} s</b></div>` : ''}` : ''}
+        ${own.reach ? `<div><small>${T('stats.reachAvg')}</small><b>${nf(own.reach.avg, 1)}</b></div>
+        <div><small>${T('stats.reachMax')}</small><b>${nf(own.reach.max)}</b></div>
+        <div><small>${T('stats.reachZero')}</small><b>${nf(own.reach.zero)}</b></div>` : ''}
+      </div>
+      ${own.dm?.open ? `<div class="hint">${T('stats.dmOpen', { n: own.dm.open, num: nf(own.dm.open) })}</div>` : ''}
+      ${own.reach && own.reach.known < own.reach.msgs ? `<div class="hint">${T('stats.reachPartial', { k: nf(own.reach.known), n: nf(own.reach.msgs) })}</div>` : ''}
+    </section>` : '';
+
+  const scale = Math.max(20, ...reps.map((r) => r.tx.pct * 1.15));
+  const repRows = (st.airtime?.repeaters || []).map((r) => r.tx ? `
+    <div class="duty" data-stat-node="${esc(r.id)}">
+      <div class="duty-top"><span>${esc(r.name)}</span><b class="${r.tx.pct >= 10 ? 'duty-over' : ''}">${pct(r.tx.pct)}</b></div>
+      <div class="duty-bar" role="img" aria-label="${esc(T('stats.dutyAria', { name: r.name, pct: pct(r.tx.pct) }))}"><i class="${r.tx.pct >= 10 ? 'over' : ''}" style="width:${Math.min(100, (r.tx.pct / scale) * 100)}%"></i><s style="left:${(10 / scale) * 100}%"></s></div>
+      <small>${[r.rx ? T('stats.dutyRx', { pct: pct(r.rx.pct) }) : '', r.tx.peak ? T('stats.dutyPeak', { pct: pct(r.tx.peak.pct) }) : '', r.tx.span < (end - st.from) * 0.8 ? T('stats.dutySpan', { h: nf(r.tx.span / 3600000, 0) }) : ''].filter(Boolean).join(' · ')}</small>
+    </div>` : `
+    <div class="duty" data-stat-node="${esc(r.id)}"><div class="duty-top"><span>${esc(r.name)}</span><b class="muted">–</b></div><small>${T('stats.dutyNone')}</small></div>`).join('');
+  const airCard = air || st.airtime?.favs ? `
+    <section class="card">
+      ${head(T('stats.airTitle'), st.radio ? small(esc(T('stats.radioLine', { sf: st.radio.sf, bw: nf(st.radio.bw, st.radio.bw % 1 ? 1 : 0), cr: st.radio.cr }))) : '', 'help.air')}
+      ${air ? `<div class="air-big"><b>${pk.truncated ? '≥ ' : ''}${pct(air.pct)}</b><span class="chart-tip" data-default="${esc(T('stats.airHere', { level: airLevel(air.pct) }))}">${esc(T('stats.airHere', { level: airLevel(air.pct) }))}</span></div>
+      ${bucketBars(air.perBucket.map((v, i) => { const s0 = st.starts[i]; const e0 = Math.min(st.starts[i + 1] ?? st.to, end); return e0 > s0 ? (v / (e0 - s0)) * 100 : 0; }), st.starts, unit, T('stats.nounAir'), (v) => pct(v))}
+      ${air.ownTxMs != null ? `<div class="hint">${T('stats.airOwn', { s: nf(air.ownTxMs / 1000, air.ownTxMs < 10000 ? 1 : 0) })}</div>` : ''}`
+      : `<div class="muted">${T(st.radio ? 'stats.airNoPk' : 'stats.airNoRadio')}</div>`}
+      ${st.airtime?.favs ? `<div class="sub-head">${T('stats.dutyHead')}<button class="help-btn" data-help aria-expanded="false" aria-label="${esc(T('stats.helpAria'))}">?</button></div><div class="card-help" hidden>${esc(T('help.duty'))}</div>${st.airtime.forbidden ? `<div class="muted">${T('stats.dutyForbidden')}</div>` : repRows}` : ''}
+    </section>` : '';
+
+  const typeIcon = { 1: 'user', 2: 'radio', 3: 'home', 4: 'thermo' };
+  const newCard = st.newNodes ? `
+    <section class="card">
+      ${head(T('stats.newTitle'), small(T('stats.newSub', { n: st.newNodes.n, num: nf(st.newNodes.n) })), 'help.new')}
+      ${st.newNodes.list.length ? `<div class="new-list">${st.newNodes.list.map((n) => `
+        <div class="new-row" data-stat-node="${esc(n.id)}">${ic(typeIcon[n.type] || 'user')}<span class="new-name">${esc(n.name)}</span><small>${multi ? `${bucketLabel(n.at, 'day')} · ` : ''}${hm(n.at)}</small></div>`).join('')}</div>` : `<div class="muted">${T('stats.newNone')}</div>`}
+    </section>` : '';
+
+  const glanceCard = `
+    <section class="card glance">
+      ${head(T('stats.glance'), '', '')}
+      <ul>${glance.map(([icon, text]) => `<li>${ic(icon)}<span>${esc(text)}</span></li>`).join('')}</ul>
+    </section>`;
   const gen = new Date(st.generated);
   el.innerHTML = `
     <div class="print-head">
       <div><b>MeshLink Chat · ${T('stats.title')}</b><span>${esc(R.label)}</span></div>
       <small>${esc(S.source?.name || '')}${S.source?.name ? ' · ' : ''}${T('stats.asOfFull', { date: esc(gen.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit', year: 'numeric' })), time: esc(hm(st.generated)) })}</small>
     </div>
+    ${glanceCard}
     <section class="tiles">
       ${tile(T('stats.tileMsgs'), nf(m.total), multi ? T('stats.avgDaySent', { avg: nf(m.total / daysSoFar, 1), sent: nf(m.mine) }) : T('stats.recvSent', { recv: nf(m.received), sent: nf(m.mine) }))}
       ${pk ? tile(T('stats.tilePk'), nf(pk.total), multi && !cov ? T('stats.avgDayBytes', { avg: nf(pk.total / daysSoFar), bytes: fmtBytes(pk.bytes) }) : `${T('stats.payload', { bytes: fmtBytes(pk.bytes) })}${cov ? ` ${T('stats.partial')}` : ''}`) : tile(T('list.dms'), nf(m.dm), T('stats.inChannels', { n: nf(m.channel) }))}
@@ -188,24 +259,27 @@ function drawStats() {
     </section>
     ${warn.map((w) => `<div class="banner">${esc(w)}</div>`).join('')}
     <section class="card">
-      <div class="card-head"><b>${multi ? T('stats.msgsPerDay') : T('stats.msgsPerHour')}</b><small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(m.total) }))}">${T('stats.total', { n: nf(m.total) })}</small></div>
+      ${head(multi ? T('stats.msgsPerDay') : T('stats.msgsPerHour'), `<small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(m.total) }))}">${T('stats.total', { n: nf(m.total) })}</small>`, 'help.msgs')}
       ${bucketBars(m.perBucket, st.starts, unit, T('stats.nounMsgs'))}
     </section>
+    ${ownCard}
+    ${airCard}
+    ${newCard}
     <section class="card">
-      <div class="card-head"><b>${T('stats.records')}</b></div>
+      ${head(T('stats.records'), '', 'help.records')}
       ${records.join('') || `<div class="muted">${T('stats.quiet')}</div>`}
       ${!m.hasMyPos ? `<div class="hint">${T('stats.needPos')}</div>` : ''}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('list.channels')}</b><small>${T('stats.nMsgs', { n: nf(m.channel) })}</small></div>
+      ${head(T('list.channels'), small(T('stats.nMsgs', { n: nf(m.channel) })), 'help.channels')}
       ${rankList(m.channels.map((c) => ({ label: c.name, n: c.n })), T('stats.noChMsgs'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.topSenders')}</b><small>${T('stats.active', { n: nf(m.senders) })}</small></div>
+      ${head(T('stats.topSenders'), small(T('stats.active', { n: nf(m.senders) })), 'help.senders')}
       ${rankList(m.topSenders.map((x) => ({ label: x.name, n: x.n })), T('stats.nobody'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.detail')}</b></div>
+      ${head(T('stats.detail'), '', 'help.detail')}
       <div class="stat-grid">
         <div><small>${T('stats.inCh')}</small><b>${nf(m.channel)}</b></div>
         <div><small>${T('list.dms')}</small><b>${nf(m.dm)}</b></div>
@@ -221,11 +295,11 @@ function drawStats() {
     ${covNote}
     ${pk ? `
     <section class="card">
-      <div class="card-head"><b>${multi ? T('stats.pkPerDay') : T('stats.pkPerHour')}</b><small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(pk.total) }))}">${T('stats.total', { n: nf(pk.total) })}</small></div>
+      ${head(multi ? T('stats.pkPerDay') : T('stats.pkPerHour'), `<small class="chart-tip" data-default="${esc(T('stats.total', { n: nf(pk.total) }))}">${T('stats.total', { n: nf(pk.total) })}</small>`, 'help.pk')}
       ${bucketBars(pk.perBucket, st.starts, unit, T('stats.nounPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.radio')}</b></div>
+      ${head(T('stats.radio'), '', 'help.radio')}
       <div class="stat-grid">
         ${pk.snr ? `<div><small>${T('stats.snrAvg')}</small><b>${nf(pk.snr.avg, 1)} dB</b></div><div><small>${T('stats.snrRange')}</small><b>${nf(pk.snr.max, 1)} / ${nf(pk.snr.min, 1)} dB</b></div>` : ''}
         ${pk.rssi ? `<div><small>${T('stats.rssiAvg')}</small><b>${nf(pk.rssi.avg)} dBm</b></div>` : ''}
@@ -236,37 +310,43 @@ function drawStats() {
       </div>
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.pkTypes')}</b></div>
+      ${head(T('stats.pkTypes'), '', 'help.pkTypes')}
       ${rankList(pk.types.map((t) => ({ label: PACKET_LABELS[t.name] || t.name, sub: PACKET_LABELS[t.name] ? t.name : '', n: t.n })), T('stats.noPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.howFar')}</b></div>
+      ${head(T('stats.howFar'), '', 'help.howFar')}
       ${rankList(hopHist, T('stats.noPk'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.lastHop')}</b><small>${T('stats.lastHopSub')}</small></div>
+      ${head(T('stats.lastHop'), small(T('stats.lastHopSub')), 'help.lastHop')}
       ${rankList(pk.lastHop.map((r) => ({ label: r.name || `#${r.hash}`, sub: r.snr != null ? T('stats.bestSnr', { v: nf(r.snr, 1) }) : '', n: r.n, node: r.id })), T('stats.noRelay'))}
     </section>
     <section class="card">
-      <div class="card-head"><b>${T('stats.relays')}</b><small>${T('stats.relaysSub')}</small></div>
+      ${head(T('stats.relays'), small(T('stats.relaysSub')), 'help.relays')}
       ${rankList(pk.relays.map((r) => ({ label: r.name || `#${r.hash}`, n: r.n, node: r.id })), T('stats.noRelay'))}
     </section>` : st.packets?.error ? `<section class="card"><div class="muted">${st.packets.error === 'forbidden' ? T('stats.pkForbidden') : T('stats.pkError', { msg: esc(st.packets.error) })}</div></section>` : ''}
     ${st.nodes ? `
     <section class="card">
-      <div class="card-head"><b>${T('stats.heardNodes')}</b><small>${T(multi ? 'stats.sinceStart' : 'stats.sinceMidnight', { n: nf(st.nodes.heard) })}</small></div>
+      ${head(T('stats.heardNodes'), small(T(multi ? 'stats.sinceStart' : 'stats.sinceMidnight', { n: nf(st.nodes.heard) })), 'help.heardNodes')}
       <div class="stat-grid">${Object.entries(st.nodes.byType).map(([t, n]) => `<div><small>${esc(types[t] || types[0])}</small><b>${nf(n)}</b></div>`).join('') || `<div><small>${T('stats.noneYet')}</small><b>0</b></div>`}</div>
     </section>` : ''}
     <div class="hint">${T('stats.footer', { src: esc(st.source) })}</div>`;
 }
 
 function onStatsClick(e) {
+  const hb = e.target.closest('[data-help]');
+  if (hb) {
+    const box = hb.closest('.card-head, .sub-head').nextElementSibling;
+    if (box?.classList.contains('card-help')) { box.hidden = !box.hidden; hb.setAttribute('aria-expanded', String(!box.hidden)); }
+    return;
+  }
   const bar = e.target.closest('.hbar');
   if (bar) {
     const tip = bar.closest('.card').querySelector('.chart-tip');
     const on = !bar.classList.contains('sel');
     bar.parentElement.querySelectorAll('.sel').forEach((x) => x.classList.remove('sel'));
     bar.classList.toggle('sel', on);
-    tip.textContent = on ? bar.dataset.tip : tip.dataset.default;
+    if (tip) tip.textContent = on ? bar.dataset.tip : tip.dataset.default;
     return;
   }
   const mb = e.target.closest('[data-stat-map]');

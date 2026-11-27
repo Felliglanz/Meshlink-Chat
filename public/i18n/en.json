@@ -252,11 +252,21 @@
   "heard.waiting": "Waiting for repeaters …",
   "heard.none": "No repeater heard",
   "heard.noneLong": "No repeater was heard forwarding this message.",
-  "heard.via": {
-    "one": "Heard via {n} repeater",
-    "other": "Heard via {n} repeaters"
-  },
   "heard.posTitle": "Position in the path",
+  "heard.directHead": "Passed on along a fixed route",
+  "heard.directVia": "First repeater on the route",
+  "heard.restPath": "then: {path}",
+  "heard.directNote": "The SNR is for the repeater that passed it on. The heard copy only names the rest of the route.",
+  "heard.selfHead": {
+    "one": "Heard yourself · {n} repeater",
+    "other": "Heard yourself · {n} repeaters"
+  },
+  "heard.pathHead": {
+    "one": "Only seen in the path · {n}",
+    "other": "Only seen in the path · {n}"
+  },
+  "heard.posNote": "1 = first repeater after you · with SNR = heard yourself, without = only in the path.",
+  "heard.unsure": "Whether the DM went by flood or along a fixed route is unknown here (packet log not readable).",
   "info.to": "To",
   "info.noScope": "no scope",
   "info.hashSize": "Hash size in path",
@@ -271,6 +281,10 @@
   "info.packetId": "Packet ID",
   "info.heardBy": "Heard by",
   "info.noRepeater": "no repeater",
+  "info.pathOnly": {
+    "one": "{n} only in the path",
+    "other": "{n} only in the path"
+  },
   "lang.title": "Language",
   "lang.auto": "Automatic",
   "lang.autoSub": "As set in the browser",
@@ -490,7 +504,7 @@
   "out.floodNote": "Your device knows no fixed path – it sends by flood via all repeaters.",
   "out.directNote": "Delivered directly, without repeaters.",
   "out.to": "Path to {name}",
-  "out.reported": "Reported with the delivery receipt – your device uses this path for DMs to {name}.",
+  "out.reported": "Reported with the delivery receipt – your device now uses this route for DMs to {name}. The message itself may have taken a different way.",
   "out.reset": "↺ Reset path (next DM by flood)",
   "own.title": "My other nodes",
   "own.text": "Messages from these senders appear on the right with “via …”, without unread counter or notification. Sending always goes through {src}.",
@@ -936,6 +950,70 @@
   "stats.fileWeek": "7-days",
   "stats.fileName": "MeshLink statistics {tag} {day}",
   "stats.noPrint": "Printing isn’t supported here – open in the browser",
+  "stats.glance": "At a glance",
+  "stats.gMsgs": "{msgs} from {senders}.",
+  "stats.nMsgsG": {
+    "one": "{num} message",
+    "other": "{num} messages"
+  },
+  "stats.nSendersG": {
+    "one": "{num} sender",
+    "other": "{num} senders"
+  },
+  "stats.gQuiet": "No messages in this period yet.",
+  "stats.gNodes": {
+    "one": "{num} node heard on air.",
+    "other": "{num} nodes heard on air."
+  },
+  "stats.gNodesNew": {
+    "one": "{num} node heard on air, {fresh} of them for the first time.",
+    "other": "{num} nodes heard on air, {fresh} of them for the first time."
+  },
+  "stats.gDm": "Your DMs: {ok} of {n} arrived.",
+  "stats.gDmFail": "Your DMs: {ok} of {n} arrived, {failed} without a receipt.",
+  "stats.gReach": "Your channel messages were passed on by {avg} repeaters on average.",
+  "stats.gAir": "Air at your place: busy {pct} of the time – {level}.",
+  "stats.gRepOver": "{name} transmits {pct} of the time – above the 10 % limit.",
+  "stats.gRepOk": "Your favourite repeaters stay below 10 % transmit time (highest: {name} at {pct}).",
+  "stats.airCalm": "calm",
+  "stats.airNormal": "normal",
+  "stats.airBusy": "busy",
+  "stats.airFull": "very full, packets collide more often",
+  "stats.helpAria": "What does this mean?",
+  "stats.ownTitle": "Your messages",
+  "stats.dmSent": "DMs sent",
+  "stats.dmOk": "arrived",
+  "stats.dmFail": "no receipt",
+  "stats.dmRtt": "avg. until receipt",
+  "stats.reachAvg": "avg. repeaters per channel message",
+  "stats.reachMax": "most repeaters",
+  "stats.reachZero": "heard by none",
+  "stats.dmOpen": {
+    "one": "The status of {num} DM is unknown (too old or still on its way).",
+    "other": "The status of {num} DMs is unknown (too old or still on their way)."
+  },
+  "stats.reachPartial": "Relaying known for {k} of {n} channel messages.",
+  "stats.airTitle": "Airtime",
+  "stats.radioLine": "SF{sf} · {bw} kHz · CR 4/{cr}",
+  "stats.airHere": "of the time the air was busy at your place – {level}",
+  "stats.nounAir": "busy",
+  "stats.airOwn": "Your device transmitted an estimated {s} s (calculated from your messages).",
+  "stats.airNoPk": "There are no packets in the packet log for this period.",
+  "stats.airNoRadio": "Your device's radio settings are not readable (MeshMonitor permission “connection read” missing) – airtime can't be calculated without them.",
+  "stats.dutyHead": "Transmit time of your favourite repeaters",
+  "stats.dutyAria": "{name}: {pct} transmit time, mark at 10 %",
+  "stats.dutyRx": "receive {pct}",
+  "stats.dutyPeak": "peak {pct}",
+  "stats.dutySpan": "readings for {h} h",
+  "stats.dutyNone": "No readings – MeshMonitor doesn't fetch this repeater's status regularly.",
+  "stats.dutyForbidden": "Repeater telemetry is not readable for the API token.",
+  "stats.newTitle": "New on the mesh",
+  "stats.newSub": {
+    "one": "{num} node",
+    "other": "{num} nodes"
+  },
+  "stats.newNone": "No new node showed up in this period.",
+  "stats.gReachNone": "No repeater was heard passing on your channel messages.",
   "status.connecting": "Connecting …",
   "status.mmDown": "MeshMonitor unreachable",
   "status.connected": "connected",
@@ -999,5 +1077,21 @@
   "theme.light": "Light",
   "theme.dark": "Dark",
   "node.heardVia": "Received via",
-  "node.dmRoute": "Route for DMs"
+  "node.dmRoute": "Route for DMs",
+  "help.own": "What became of your own messages: a DM counts as arrived when the recipient sends back a receipt (ACK). Channel messages have no receipt – here it counts how many repeaters your device heard passing them on.",
+  "help.air": "What percentage of the time something was transmitted on your frequency, as your device hears it – calculated from all received packets and the radio settings. Below 5 % is relaxed; from about 30 % packets often collide.",
+  "help.duty": "In Europe a device may transmit at most 10 % of the time on 869.4–869.65 MHz (duty cycle). Every MeshCore repeater counts its own transmit time; MeshMonitor stores those readings. The line marks 10 %. “Receive” shows how busy the air is where the repeater stands.",
+  "help.new": "Nodes MeshMonitor heard for the very first time in this period – new people, new repeaters or freshly set-up devices.",
+  "help.msgs": "All messages in channels and DMs that went through your device, spread over the period. Tap a bar for the exact value.",
+  "help.records": "Highlights of the period: e.g. where the farthest message came from or over how many repeaters (hops) a packet travelled. Distances need a position for your device.",
+  "help.channels": "Which channels had the most messages.",
+  "help.senders": "Who wrote the most (only messages your device received).",
+  "help.detail": "Hops = over how many repeaters a message travelled; 0 = heard directly. ID size = how long the repeater IDs in the path are (1–3 bytes, longer = more unique).",
+  "help.pk": "Everything your device heard on air – not just messages, also adverts (I'm-here announcements), receipts and path discovery.",
+  "help.radio": "SNR = how far a signal is above the noise (higher is better; LoRa still decodes signals below 0 dB). RSSI = signal strength in dBm. Flood = to all repeaters, direct = along a fixed route.",
+  "help.pkTypes": "Which kinds of packets were on air. Lots of adverts are normal – every device announces itself regularly.",
+  "help.howFar": "Over how many repeaters the heard packets came. Direct = without repeaters, from the sender itself.",
+  "help.lastHop": "Which repeaters your device receives packets from directly – your most important neighbours. With the best SNR.",
+  "help.relays": "Which repeaters appeared in the paths of the heard packets – no matter how far away.",
+  "help.heardNodes": "How many nodes of which kind were heard in the period."
 }
