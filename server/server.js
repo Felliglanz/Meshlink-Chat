@@ -6,7 +6,7 @@
  *   /api/sources/{id}/meshcore/…     MeshCore-Extras (Reaktionen, Scope, Resend, Advert, Kontakte, Rooms)
  * Gespeichert wird nichts außer den Push-Abos (max. 10, siehe push.js); alles andere liegt nur im Speicher.
  */
-const VERSION = '1.8.1';
+const VERSION = '1.9.0';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
